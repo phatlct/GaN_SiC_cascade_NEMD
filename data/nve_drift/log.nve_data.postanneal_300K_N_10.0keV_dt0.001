@@ -1,0 +1,189 @@
+LAMMPS (22 Jul 2025 - Update 6)
+# ==============================================================================
+# in.04_nemd_thermal.lammps
+# Buoc 5: Ap dat gradient nhiet (NEMD hai vung nong/lanh - "two-region"
+# method) de do dong nhiet qua giao dien GaN/SiC va tinh do dan nhiet
+# giao dien (interfacial / Kapitza thermal conductance, G).
+#
+# Phuong phap: direct NEMD hai vung Langevin thermostat (Ikeshoji-Hafskjold
+# style). Thay the bang fix "thermal/conductivity" (Muller-Plathe swap) neu
+# muon dung reverse-NEMD - script cho phuong an do duoi day dung comment
+# o cuoi file.
+#
+# Cong thuc tinh do dan nhiet giao dien (Kapitza conductance):
+#   G = q'' / DeltaT_interface
+# trong do q'' [W/m^2] la mat do dong nhiet qua tiet dien ngang,
+# DeltaT_interface [K] la do nhay nhiet do (temperature jump) tai giao dien,
+# xac dinh tu ngoai suy tuyen tinh profile nhiet do ve 2 phia giao dien.
+#
+#   q'' = (dE/dt) / A
+# voi dE/dt la toc do nang luong bom vao vung nong (hoac rut ra vung lanh)
+# o trang thai dung (steady state), A la dien tich mat cat ngang (xy).
+# ==============================================================================
+
+units           metal
+atom_style      atomic
+boundary        p p f
+atom_modify     map array
+newton          on
+
+# CAP NHAT (05/08/2026): tham so hoa de ten file khop chinh xac voi output
+# cua in.03 (restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
+# Truyen tu dong lenh, vd: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
+variable        T_equil    index 300
+variable        pka_species index Ga
+variable        E_pka_keV  index 5.0
+# SUA LOI (05/08/2026, xac nhan tren may that): read_restart bao loi "Did not
+# assign all restart atoms correctly" tren hop triclinic nghieng manh voi
+# nhieu tien trinh MPI. Doi sang read_data (on dinh hon qua kiem chung that).
+read_data ${datafile}
+read_data data.postanneal_300K_N_10.0keV.data
+Reading data file ...
+  triclinic box = (0 0 0) to (61.654054 53.393977 116.90099) with tilt (30.827027 0 0)
+WARNING: Triclinic box skew is large. LAMMPS will run inefficiently. (src/domain.cpp:221)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  33660 atoms
+  reading velocities ...
+  33660 velocities
+  read_data CPU = 0.213 seconds
+
+# Force field DA XAC NHAN - xem 02_Force_Field/LJ_interface_crossterms_UFF.md
+variable        lj_scale index 1.0     # he so scale LJ giao dien cho sensitivity scan
+# CANH BAO GPU (05/08/2026): KHONG dung "-sf gpu" (loi "GPU package styles
+# must not be used multiple times" khi 2 substyle TRUNG TEN). Chi dung
+# "-pk gpu 1 platform X" - xem QUY_TRINH_CHAY_NGHIEN_CUU.md.
+# CAP NHAT (06/08/2026, nang cap hieu nang): substyle GaN chuyen sang
+# "tersoff/gpu", substyle SiC giu "tersoff" (CPU) - 2 ten KHAC NHAU nen
+# khong bi chan, khong con can chi so 1/2 trong pair_coeff. Da kiem chung
+# qua test proxy (tersoff/omp), PotEng khop chinh xac voi ban CPU thuan.
+# CAP NHAT (05/08/2026, xac nhan qua test that): BAT BUOC them "neigh no"
+# vao lenh -pk gpu, neu khong se loi "Must not use GPU neighbor lists with
+# hybrid pair style".
+# CAP NHAT (11/08/2026, sau 12 to hop chay on dinh khong crash): BAT LAI OMP
+# cho substyle SiC, GIOI HAN tong luong = 14 (giu dung 70%% da chot) bang
+# cach GIAM MPI tu 14 xuong 7 VA them 2 luong OMP/tien trinh (7x2=14 luong).
+# RUI RO: neu LAMMPS khong bien dich kem OPENMP se bao loi ngay khi khoi
+# dong - neu gap, doi ve "tersoff" (bo /omp) va "-n 14" (bo "-pk omp").
+pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
+pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
+Reading tersoff potential file GaN.tersoff with DATE: 2007-10-22
+pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C
+Reading tersoff potential file SiC.tersoff with DATE: 2011-04-26
+pair_coeff      1 1 lj/cut 0.0 1.0 2.0
+pair_coeff      2 2 lj/cut 0.0 1.0 2.0
+pair_coeff      1 2 lj/cut 0.0 1.0 2.0
+pair_coeff      3 3 lj/cut 0.0 1.0 2.0
+pair_coeff      4 4 lj/cut 0.0 1.0 2.0
+pair_coeff      3 4 lj/cut 0.0 1.0 2.0
+pair_coeff      1 3 lj/cut $(0.01771*v_lj_scale) 3.8654   # Ga-Si (UFF combining rule)
+pair_coeff      1 3 lj/cut 0.017710000000000000048 3.8654   
+pair_coeff      1 4 lj/cut $(0.00905*v_lj_scale) 3.6602   # Ga-C
+pair_coeff      1 4 lj/cut 0.0090500000000000007522 3.6602   
+pair_coeff      2 3 lj/cut $(0.00722*v_lj_scale) 3.5322   # N-Si
+pair_coeff      2 3 lj/cut 0.0072199999999999998554 3.5322   
+pair_coeff      2 4 lj/cut $(0.00369*v_lj_scale) 3.3447   # N-C
+pair_coeff      2 4 lj/cut 0.0036900000000000001375 3.3447   
+variable        zlo equal bound(all,zmin)
+variable        zhi equal bound(all,zmax)
+region          r_fixed_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
+region          r_fixed_lo block INF INF INF INF 0.162711547928031 $(v_zlo+3.0) units box
+region          r_fixed_lo block INF INF INF INF 0.162711547928031 3.1627115479280307753 units box
+region          r_fixed_hi block INF INF INF INF $(v_zhi-3.0) ${zhi} units box
+region          r_fixed_hi block INF INF INF INF 111.95026343728700624 ${zhi} units box
+region          r_fixed_hi block INF INF INF INF 111.95026343728700624 114.950263437287 units box
+group           g_fixed region r_fixed_lo
+1200 atoms in group g_fixed
+group           g_fixed_hi region r_fixed_hi
+1083 atoms in group g_fixed_hi
+group           g_fixed union g_fixed g_fixed_hi
+2283 atoms in group g_fixed
+group           g_mobile subtract all g_fixed
+31377 atoms in group g_mobile
+fix             fix_nve    g_mobile nve
+fix             fix_freeze g_fixed setforce 0.0 0.0 0.0
+fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
+timestep        ${dt}
+timestep        0.001
+thermo          100
+thermo_style    custom step time temp pe ke etotal
+thermo_modify   flush yes
+run             ${nsteps}
+run             2000
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 6, bins = 16 9 20
+  4 neighbor lists, perpetual/occasional/extra = 4 0 0
+  (1) pair tersoff, perpetual, skip from (4)
+      attributes: full, newton on
+      pair build: skip
+      stencil: none
+      bin: none
+  (2) pair tersoff, perpetual, skip from (4)
+      attributes: full, newton on
+      pair build: skip
+      stencil: none
+      bin: none
+  (3) pair lj/cut, perpetual, half/full from (4)
+      attributes: half, newton on, cut 12
+      pair build: halffull/newton/tri
+      stencil: none
+      bin: none
+  (4) neighbor class addition, perpetual
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 36.37 | 36.37 | 36.37 Mbytes
+   Step          Time           Temp          PotEng         KinEng         TotEng    
+         0   0              280.53025     -166654.46      1220.5218     -165433.94    
+       100   0.1            282.76321     -166663.64      1230.2369     -165433.4     
+       200   0.2            281.63791     -166657.86      1225.341      -165432.52    
+       300   0.3            281.85837     -166657.65      1226.3002     -165431.35    
+       400   0.4            281.16292     -166654.2       1223.2744     -165430.93    
+       500   0.5            282.85104     -166661.19      1230.619      -165430.57    
+       600   0.6            282.28564     -166657.98      1228.1591     -165429.82    
+       700   0.7            280.83159     -166650.73      1221.8329     -165428.89    
+       800   0.8            281.81635     -166653.83      1226.1173     -165427.71    
+       900   0.9            283.06647     -166658.82      1231.5563     -165427.26    
+      1000   1              281.23202     -166649.7       1223.575      -165426.12    
+      1100   1.1            280.66496     -166646.91      1221.1079     -165425.8     
+      1200   1.2            281.81317     -166651.43      1226.1035     -165425.33    
+      1300   1.3            281.23255     -166648.35      1223.5774     -165424.77    
+      1400   1.4            284.56559     -166661.84      1238.0787     -165423.76    
+      1500   1.5            282.57446     -166652.4       1229.4157     -165422.99    
+      1600   1.6            282.90257     -166653.15      1230.8432     -165422.31    
+      1700   1.7            283.06012     -166652.85      1231.5287     -165421.32    
+      1800   1.8            280.94524     -166642.96      1222.3274     -165420.63    
+      1900   1.9            283.46549     -166652.89      1233.2923     -165419.6     
+      2000   2              283.49616     -166652.07      1233.4258     -165418.65    
+Loop time of 119.78 on 1 procs for 2000 steps with 33660 atoms
+
+Performance: 1.443 ns/day, 16.636 hours/ns, 16.697 timesteps/s, 562.030 katom-step/s
+99.2% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 118.31     | 118.31     | 118.31     |   0.0 | 98.77
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.22696    | 0.22696    | 0.22696    |   0.0 |  0.19
+Output  | 0.59384    | 0.59384    | 0.59384    |   0.0 |  0.50
+Modify  | 0.55505    | 0.55505    | 0.55505    |   0.0 |  0.46
+Other   |            | 0.09263    |            |       |  0.08
+
+Nlocal:          33660 ave       33660 max       33660 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          37487 ave       37487 max       37487 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    1.03415e+06 ave 1.03415e+06 max 1.03415e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 1034147
+Ave neighs/atom = 30.723321
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:02:00

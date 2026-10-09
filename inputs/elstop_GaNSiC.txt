@@ -1,0 +1,36 @@
+# Electronic stopping table cho fix electron/stopping (LAMMPS, don vi metal)
+# Cot: energy(eV)  Se_Ga(eV/A)  Se_N(eV/A)  Se_Si(eV/A)  Se_C(eV/A)
+# Thu tu cot PHAI khop thu tu atom type trong GaN_SiC_interface.data:
+#   type 1 = Ga, type 2 = N, type 3 = Si, type 4 = C
+#
+# NGUON DU LIEU (04/08/2026):
+#   - Cot Si (type 3): DU LIEU THAT, lay tu vi du chinh thuc di kem LAMMPS
+#     (examples/PACKAGES/electron_stopping/Si.Si.elstop), tac gia Risto
+#     Toijala (Dai hoc Helsinki), ngay 2019-02-19, tinh tu SRIM cho tu-ion Si
+#     trong Si. Nguon: https://github.com/lammps/lammps/blob/develop/examples/PACKAGES/electron_stopping/Si.Si.elstop
+#   - Cot Ga, N, C: CHUA CO DU LIEU SRIM RIENG cho Ga-trong-GaN, N-trong-GaN,
+#     C-trong-SiC (da tim kiem nhieu nguon khoa hoc, khong tim duoc bang so
+#     lieu da cong bo sang tu tra cuu duoc trong phien lam viec nay). TAM
+#     THOI dung LAI DU LIEU THAT CUA Si-TRONG-Si o tren nhu mot UOC LUONG BAC
+#     DO LON (cung thang bac 1-50 eV/A trong dai 1-250 keV, phu hop voi xu
+#     huong tong quat cua electronic stopping cho ion trung binh trong chat
+#     ran - xem Nordlund, "Radiation Damage in Materials" course notes,
+#     https://www.mv.helsinki.fi/home/knordlun/rad_dam_course/str_skador3.pdf).
+#     DAY LA GIA TRI TAM, KHONG PHAI SO LIEU SRIM THAT CHO Ga/N/C - PHAI THAY
+#     THE bang SRIM that truoc khi lay ket qua cong bo chinh thuc (xem
+#     huong dan trong file HUONG_DAN_SRIM_electronic_stopping.md cung thu muc).
+#
+# Diem 10 eV (duoi Ecut=10.0 dat trong fix): Se~0, phu hop voi vung nang
+# luong gan nhiet (Regime A, xem Nordlund notes) - khong co "chuan" that o
+# day, ngoai suy tuyen tinh ve 0 la lua chon an toan, bao thu.
+#
+#   energy(eV)  Se_Ga      Se_N       Se_Si      Se_C
+      10.0         0.0        0.0        0.0        0.0
+    3918.2         6.541      6.541      6.541      6.541
+   15672.9        13.091     13.091     13.091     13.091
+   35263.9        19.660     19.660     19.660     19.660
+   62691.5        26.257     26.257     26.257     26.257
+   97955.4        32.889     32.889     32.889     32.889
+  141055.9        39.566     39.566     39.566     39.566
+  191992.0        46.292     46.292     46.292     46.292
+  250766.1        53.074     53.074     53.074     53.074

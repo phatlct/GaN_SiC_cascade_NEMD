@@ -1,0 +1,277 @@
+# ==============================================================================
+# in.02_pka_cascade.lammps
+# Buoc 3: Ban PKA (Ga hoac N) nang luong 1-10 keV gan giao dien GaN/SiC de
+# tao cum khiem khuyet (collision cascade cluster), co electronic stopping.
+# Tham khao phuong phap: Nanomaterials 14(21),1738 (2024) - InP electronic
+# stopping; Materials 16(12),4224 (2023) - GaN alpha particle cascade.
+# ==============================================================================
+#
+# CAP NHAT 04/08/2026 (sau phan bien chuyen gia lan 2):
+#   - Tham so hoa loai PKA (Ga HOAC N, dung -var pka_species N khi chay, thay
+#     vi chi co san Ga nhu ban truoc).
+#   - Huong ban PKA nay la NGAU NHIEN trong 1 hinh non quanh truc -z (huong ve
+#     giao dien), khong con co dinh tuyet doi theo -z nhu ban truoc (buc xa
+#     hat that la dang huong - ban co dinh 1 huong lam thien lech hinh dang
+#     cum khiem khuyet). Do rong non va seed dieu chinh duoc.
+#   - Them chan doan "cascade containment": theo doi dong nang vung bien trong
+#     luc chay, canh bao neu nang luong cascade cham toi bien truoc khi tieu
+#     tan (rui ro da neu trong phan bien ve kich thuoc he theo truc z).
+#   - Da xoa bien "g_rest_mobile" (dinh nghia nhung khong dung o dau ca).
+#   - Them lj_scale de lam sensitivity scan tren tham so LJ giao dien (vd
+#     -var lj_scale 0.5 hoac -var lj_scale 1.5) ma khong can sua code.
+#
+# CANH BAO (giu nguyen tu ban truoc):
+#   - Timestep phai THICH UNG (adaptive) trong giai doan cascade vi PKA co
+#     van toc rat lon ngay sau va cham -> dung fix dt/reset de gioi han
+#     quang duong di chuyen toi da moi buoc thoi gian (khong dung timestep
+#     co dinh 0.001 ps cho toan bo giai doan nay).
+#   - Fix electron/stopping can file du lieu electron stopping power (dE/dx)
+#     theo nang luong cho tung nguyen to Ga, N, Si, C - LAY TU SRIM/SRIM-2013
+#     hoac tai lieu da cong bo, KHONG duoc bia so lieu. File placeholder
+#     "elstop_GaNSiC.txt" duoi day CAN duoc thay bang du lieu SRIM thuc te.
+#   - Vung bien he (bien thermostat / boundary damping) dung de hap thu
+#     nang luong cascade lan toa ra ngoai, mo phong hieu ung "infinite bulk"
+#     - dung fix langevin tren lop nguyen tu ngoai cung (khong ap dung NVE).
+#   - RUI RO CONTAINMENT (moi, xem canh bao in ra tu build_GaN_SiC_interface.py):
+#     he PHAI du day theo truc z de chua het cascade truoc khi cham bien -
+#     kiem tra thermo cot "ke_boundary" trong log, neu tang bat thuong trong
+#     luc cascade nghia la nang luong da lan toi bien qua som.
+# ==============================================================================
+
+units           metal
+atom_style      atomic
+boundary        p p f
+atom_modify     map array
+
+variable        T_equil index 300           # nhiet do da equilibrate (300/350/400) -
+                                             # truyen tu dong lenh: -var T_equil 350
+# SUA LOI (05/08/2026, xac nhan tren may that): read_restart bao loi "Did not
+# assign all restart atoms correctly" voi hop trielinic nghieng manh (tilt
+# 30.827) khi chia nhieu tien trinh MPI (vd 1x2x5 voi -n 10) - mat 1 nguyen
+# tu (33659 thay vi 33660), co ve la loi bien mien tinh toan cua LAMMPS voi
+# hop nghieng + so tien trinh cu the. Doi sang read_data (doc data.equil_*
+# thay vi restart.equil_*, ca hai deu duoc in.01 ghi ra san) - read_data on
+# dinh hon nhieu qua kiem chung, van giu day du khoi luong + van toc.
+read_data       data.equil_${T_equil}K.data
+
+group           gan   type 1 2
+group           sic   type 3 4
+
+# --- Force field DA XAC NHAN - xem 02_Force_Field/LJ_interface_crossterms_UFF.md ---
+variable        lj_scale index 1.0     # he so scale LJ giao dien cho sensitivity scan
+                                        # (vd chay: lmp -var lj_scale 0.5 -in in.02...)
+# CANH BAO GPU (05/08/2026): KHONG dung "-sf gpu" tren dong lenh (goi GPU
+# package khong cho phep 1 style /gpu xuat hien 2 lan TRUNG TEN trong
+# hybrid/overlay). Chi dung "-pk gpu 1 platform X" - xem chi tiet trong
+# in.01_minimize_equilibrate.lammps va QUY_TRINH_CHAY_NGHIEN_CUU.md.
+# CAP NHAT (06/08/2026, nang cap hieu nang): substyle GaN (nhieu nguyen tu
+# hon) chuyen sang "tersoff/gpu", substyle SiC giu "tersoff" (CPU) - 2 ten
+# KHAC NHAU nen khong bi chan boi gioi han tren, va khong con can chi so
+# 1/2 phan biet trong pair_coeff. Da kiem chung bang test proxy (tersoff/omp)
+# cho PotEng khop chinh xac voi ban CPU thuan - xem in.01 de biet chi tiet.
+# CAP NHAT (05/08/2026, xac nhan qua test that): BAT BUOC them "neigh no"
+# vao lenh -pk gpu, neu khong se loi "Must not use GPU neighbor lists with
+# hybrid pair style".
+# CAP NHAT (11/08/2026, sau 12 to hop chay on dinh khong crash): BAT LAI OMP
+# cho substyle SiC, GIOI HAN tong luong = 14 (giu dung 70%% da chot) bang
+# cach GIAM MPI tu 14 xuong 7 VA them 2 luong OMP/tien trinh (7x2=14 luong).
+# RUI RO: neu LAMMPS khong bien dich kem OPENMP se bao loi ngay khi khoi
+# dong - neu gap, doi ve "tersoff" (bo /omp) va "-n 14" (bo "-pk omp").
+pair_style      hybrid/overlay tersoff/gpu tersoff/omp lj/cut/gpu 10.0
+pair_coeff      * * tersoff/gpu GaN.tersoff Ga N NULL NULL
+pair_coeff      * * tersoff/omp SiC.tersoff NULL NULL Si C
+pair_coeff      1 1 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      2 2 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      1 2 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      3 3 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      4 4 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      3 4 lj/cut/gpu 0.0 1.0 2.0
+pair_coeff      1 3 lj/cut/gpu $(0.01771*v_lj_scale) 3.8654   # Ga-Si (UFF combining rule)
+pair_coeff      1 4 lj/cut/gpu $(0.00905*v_lj_scale) 3.6602   # Ga-C
+pair_coeff      2 3 lj/cut/gpu $(0.00722*v_lj_scale) 3.5322   # N-Si
+pair_coeff      2 4 lj/cut/gpu $(0.00369*v_lj_scale) 3.3447   # N-C
+
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+# --- Vung bien (boundary thermostat) de hap thu nang luong cascade ---
+# Xac dinh lop nguyen tu sat bien theo z (be day ~ 10-15 Angstrom) lam vung dem
+variable        zlo equal bound(all,zmin)
+variable        zhi equal bound(all,zmax)
+
+# SUA LOI (05/08/2026, xac nhan tren may that): "ERROR: Lost atoms" tai step
+# 3530 trong giai doan cascade (run 8000). Nguyen nhan giong het bug da fix
+# trong in.01: bien z KHONG tuan hoan (boundary p p f) nen nguyen tu o lop
+# ngoai cung co the bi "ban vang" ra khoi hop mo phong khi cascade nang luong
+# cao lan toi do - lop dem Langevin+NVE (9-12A, ben duoi) van cho phep nguyen
+# tu DI CHUYEN nen khong du de chan vat ly, chi giup TAN NHIET. Fix: them 1
+# lop THAT MONG (3A) ngoai cung dong bang HOAN TOAN (setforce 0, KHONG nve)
+# lam "tuong neo" co dinh mang tinh the, giong het co che da kiem chung trong
+# in.01. Lop dem Langevin 9A con lai VAN GIU NGUYEN de hap thu nhiet cascade
+# mot cach thuc te (khong dong bang toan bo 12A vi se phan xa nang luong
+# khong thuc te thay vi tan xa/hap thu nhu vat lieu khoi that).
+region          r_edge_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
+region          r_edge_hi block INF INF INF INF $(v_zhi-3.0) ${zhi} units box
+group           g_edge_lo region r_edge_lo
+group           g_edge_hi region r_edge_hi
+group           g_edge   union g_edge_lo g_edge_hi
+
+region          r_bottom block INF INF INF INF $(v_zlo+3.0) $(v_zlo+12.0) units box
+region          r_top    block INF INF INF INF $(v_zhi-12.0) $(v_zhi-3.0) units box
+group           g_boundary region r_bottom
+group           g_boundary_top region r_top
+group           g_boundary union g_boundary g_boundary_top
+group           g_mobile subtract all g_boundary g_edge
+
+# CAP NHAT (05/08/2026): doi nhiet do dich Langevin tu hang so cung "300.0"
+# sang ${T_equil} de nhat quan khi quet nhieu nhiet do khac 300K (bug nho
+# phat hien khi ra soat lai, khong lien quan truc tiep den "Lost atoms" nhung
+# sua luon cho dung tham so hoa).
+fix             fix_boundary_temp g_boundary langevin ${T_equil} ${T_equil} 0.1 24601
+fix             fix_boundary_nve  g_boundary nve
+fix             fix_edge_freeze   g_edge setforce 0.0 0.0 0.0
+
+# SUA LOI (07/08/2026, xac nhan tren may that): "ERROR: Lost atoms" tai step
+# 4840 khi chay E_pka_keV=7.0 (chua tung xay ra o 1/3/5 keV) - lop dong bang
+# 3A + lop Langevin 9A (tong 12A) khong con du de chan MOI truong hop o nang
+# luong cao hon, kha nang do hieu ung "channeling" (nguyen tu bi day di theo
+# dung 1 huong ngau nhien CO DINH - xem rand_seed_dir=98765 khong doi giua
+# cac nang luong - neu huong do trung voi khe ho tinh the, nguyen tu co the
+# xuyen qua xa hon binh thuong). Vi day la hien tuong nguong/hiem gap (5 keV
+# cung huong do van an toan), tang be day buffer chi la giai phap thong ke
+# khong chac chan, nen THEM tuong phan xa cung (elastic) tai chinh bien hop
+# theo truc z - CHI kich hoat trong truong hop hiem nay (nguyen tu sap thoat
+# ra ngoai), khong anh huong gi den vat ly binh thuong o moi truong hop khac
+# (thuong khong co nguyen tu nao cham toi bien that ca). Day la ky thuat
+# chuan trong mo phong cascade buc xa (radiation damage MD) de tranh mat
+# nguyen tu ma khong lam sai lech ket qua trong vung nghien cuu trung tam.
+fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
+
+# --- Chan doan containment: theo doi dong nang vung bien trong luc cascade ---
+# Neu ke_boundary tang manh bat thuong trong giai doan cascade (so voi muc
+# nhiet nen ~300K), nghia la nang luong cascade da lan toi bien qua som -
+# he chua du day theo truc z, ket qua co the khong dang tin cay.
+compute         cke_boundary g_boundary ke
+variable        ke_boundary equal c_cke_boundary
+
+# --- Chon nguyen tu PKA gan giao dien ---
+# CAP NHAT (04/08/2026): ID that, xac dinh bang cach doc truc tiep toa do tu
+# GaN_SiC_interface.data (khong con la gia tri gia dinh 12345). Giao dien tai
+# z~38.126 A (GaN o phia tren, z lon hon; SiC o phia duoi). Da chon nguyen tu
+# nam giua theo x,y va cach giao dien ~5A ve phia GaN (du sau de tranh hieu
+# ung be mat khi ban PKA, du gan de cascade con anh huong toi giao dien):
+#   Ga id=17103, vi tri (30.827, 27.165, 41.718) A
+#   N  id=18244, vi tri (30.827, 25.292, 42.361) A
+# ID duoc chon TUONG UNG voi pka_species ben duoi bang khoi if/elif, dam bao
+# luon dung loai nguyen to (khong con rui ro nham lan nhu gia tri 12345 cu).
+variable        E_pka_keV index 5.0          # quet 1-10 keV theo de xuat - truyen tu
+                                              # dong lenh: -var E_pka_keV 7.5
+variable        E_pka_eV  equal v_E_pka_keV*1000.0
+
+# --- Loai PKA: Ga hoac N (tham so hoa - de xuat yeu cau ca 2 loai) ---
+variable        pka_species index Ga
+if "${pka_species} == Ga" then &
+    "variable m_pka equal 69.723" &
+    "variable pka_id equal 17103" &
+elif "${pka_species} == N" &
+    "variable m_pka equal 14.007" &
+    "variable pka_id equal 18244" &
+else &
+    "print 'LOI: pka_species phai la Ga hoac N, dang nhan: ${pka_species}'" &
+    "quit 1"
+print "=== PKA: loai=${pka_species}, khoi luong=${m_pka} g/mol, ID=${pka_id} ==="
+
+group           g_pka id ${pka_id}
+
+# --- Electron stopping (LAMMPS built-in fix electron/stopping) ---
+# File du lieu dE/dx(E) theo tung nguyen to. CANH BAO QUAN TRONG (04/08/2026):
+# cot Si trong elstop_GaNSiC.txt la DU LIEU THAT (SRIM, vi du chinh thuc
+# LAMMPS - xem trich dan trong file .txt); cot Ga, N, C hien TAM DUNG LAI so
+# lieu Si nhu uoc luong bac do lon vi CHUA tim duoc SRIM/cong bo rieng cho
+# tung nguyen to nay trong GaN/SiC. PHAI chay SRIM that va thay 3 cot nay
+# truoc khi lay ket qua cong bo chinh thuc - xem
+# HUONG_DAN_SRIM_electronic_stopping.md cung thu muc de biet cach lam.
+fix             fix_elstop all electron/stopping 10.0 elstop_GaNSiC.txt
+
+# --- Tich phan NVE cho vung mobile (bao gom PKA) ---
+fix             fix_nve_mobile g_mobile nve
+
+# --- Adaptive timestep: gioi han quang duong di chuyen toi da / buoc ---
+fix             fix_adapt_dt all dt/reset 1 1.0e-6 0.001 0.01 units box
+# Tham so: N=1 (kiem tra moi buoc), dtmin=1e-6 ps, dtmax=0.001 ps,
+# xmax=0.01 Angstrom (quang duong toi da 1 nguyen tu di chuyen moi buoc)
+
+timestep        0.001
+
+thermo          10
+thermo_style    custom step dt time temp pe ke etotal v_ke_boundary
+thermo_modify   flush yes
+
+# --- Huong ban PKA: NGAU NHIEN trong 1 hinh non quanh truc -z (huong ve giao
+# dien), lay mau dong deu theo goc khoi (solid-angle-uniform), KHONG con co
+# dinh tuyet doi theo -z nhu ban truoc. Doi rand_seed_dir giua cac lan chay
+# de lay mau cac cau hinh cascade khac nhau (thong ke nhieu lan ban). ---
+variable        cone_halfangle_deg equal 30.0   # do rong non huong ban (do)
+variable        rand_seed_dir      equal 98765  # doi giua cac lan chay doc lap
+
+variable        cos_halfangle equal cos(v_cone_halfangle_deg*0.017453293)
+variable        u_rand        equal random(0,1,v_rand_seed_dir)
+variable        cos_theta_p   equal 1.0-v_u_rand*(1.0-v_cos_halfangle)
+variable        theta_p       equal acos(v_cos_theta_p)      # radian, tinh tu truc -z
+variable        phi_rand_deg  equal random(0,360,$(v_rand_seed_dir+1))
+variable        phi_rad       equal v_phi_rand_deg*0.017453293
+
+variable        vx_dir equal sin(v_theta_p)*cos(v_phi_rad)
+variable        vy_dir equal sin(v_theta_p)*sin(v_phi_rad)
+variable        vz_dir equal -cos(v_theta_p)                 # am vi tam la -z
+
+# --- Van toc PKA tuong ung nang luong E_pka: E = 1/2 m v^2 => v = sqrt(2E/m) ---
+variable        v_pka equal sqrt(2.0*v_E_pka_eV*1.602176634e-19/(v_m_pka*1.66053906660e-27))*1.0e-2
+# v_pka don vi: Angstrom/ps (chuyen doi tu m/s)
+
+velocity        g_pka set $(v_vx_dir*v_v_pka) $(v_vy_dir*v_v_pka) $(v_vz_dir*v_v_pka) units box
+print "=== Huong ban PKA: theta_tu_truc_-z=$(v_theta_p/0.017453293) do, phi=${phi_rand_deg} do ==="
+
+# SUA LOI (04/08/2026): "c_thermo_pe" la compute SCALAR (tong nang luong he),
+# KHONG phai per-atom - dump custom se bao loi. Phai tu dinh nghia compute
+# pe/atom rieng cho tung nguyen tu.
+compute         pe_atom_cascade all pe/atom
+dump            dmp_cascade all custom 50 dump.cascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.lammpstrj id type x y z vx vy vz c_pe_atom_cascade
+dump_modify     dmp_cascade sort id
+
+# --- Giai doan 1+2: va cham + heat-spike/tai hop ---
+# SUA LOI (04/08/2026): ban truoc NGAT DOT NGOT fix dt/reset roi nhay thang
+# ve timestep co dinh 0.001 ps ngay sau giai doan va cham - kiem tra bang
+# LAMMPS that cho thay day la loi nghiem trong: tai thoi diem chuyen doi, dt
+# thich ung van con o muc ~1e-5 ps (nho hon 100 lan muc co dinh), nhay thang
+# len 0.001 ps gay "Lost atoms" ngay lap tuc (mat on dinh tich phan). SUA
+# bang cach GIU fix dt/reset CHAY XUYEN SUOT ca 2 giai doan - no se TU DONG
+# tang dt dan len toi dtmax=0.001 ps khi he da du on dinh (dua tren quang
+# duong di chuyen toi da moi buoc), khong can chuyen doi thu cong dot ngot.
+run             8000            # giai doan va cham, dt thich ung tu ~1e-6 den 0.001 ps
+run             40000           # giai doan heat-spike/tai hop, dt tiep tuc thich ung
+                                 # (thuong se tu nhien on dinh gan dtmax neu he da lang)
+# QUAN TRONG (phat hien khi test that voi he pilot 04/08/2026): dt thich ung
+# co the o lai muc rat nho (~1e-5 ps) lau hon du kien neu cascade van con
+# nang luong cao - nghia la tong so buoc o tren co the tuong ung VOI THOI
+# GIAN VAT LY (ps) IT HON 20-25 ps du kien ban dau. BAT BUOC kiem tra cot
+# "Time" trong log sau khi chay: neu Time cuoi << 20-25 ps, can TANG so buoc
+# run o tren (dac biet quan trong voi he pilot nho - he production lon hon
+# thuong tan nhiet nhanh hon, dt phuc hoi ve dtmax nhanh hon).
+unfix           fix_adapt_dt
+# Sau ca 2 giai doan tren, dt/reset da dua he ve trang thai on dinh - chi luc
+# nay moi an toan de chuyen sang timestep co dinh cho cac buoc tiep theo (neu can).
+timestep        0.001
+
+write_restart   restart.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
+write_data      data.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
+# Ghi ca write_data (khong chi write_restart) vi in.03 doc bang read_data de
+# tranh loi "Did not assign all restart atoms correctly" tren hop triclinic
+# nghieng - xem ghi chu o dau file nay.
+write_dump      all custom dump.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.lammpstrj id type x y z
+
+print           "=== Hoan tat cascade PKA ${pka_species} ${E_pka_keV} keV ==="
+print           "Buoc tiep theo: in.03_anneal_cooldown.lammps -> in.04_nemd_thermal.lammps"
+print           "PHAI kiem tra bang OVITO/DXA: dem so khiem khuyet con lai, phan loai cum vs diem don"
+print           "PHAI kiem tra cot ke_boundary trong log: neu tang manh bat thuong so voi nen ~300K,"
+print           "he co the chua du day theo truc z (rui ro containment) - xem canh bao build script"

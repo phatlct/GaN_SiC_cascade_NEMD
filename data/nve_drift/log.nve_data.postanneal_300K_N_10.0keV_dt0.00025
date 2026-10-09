@@ -1,0 +1,249 @@
+LAMMPS (22 Jul 2025 - Update 6)
+# ==============================================================================
+# in.04_nemd_thermal.lammps
+# Buoc 5: Ap dat gradient nhiet (NEMD hai vung nong/lanh - "two-region"
+# method) de do dong nhiet qua giao dien GaN/SiC va tinh do dan nhiet
+# giao dien (interfacial / Kapitza thermal conductance, G).
+#
+# Phuong phap: direct NEMD hai vung Langevin thermostat (Ikeshoji-Hafskjold
+# style). Thay the bang fix "thermal/conductivity" (Muller-Plathe swap) neu
+# muon dung reverse-NEMD - script cho phuong an do duoi day dung comment
+# o cuoi file.
+#
+# Cong thuc tinh do dan nhiet giao dien (Kapitza conductance):
+#   G = q'' / DeltaT_interface
+# trong do q'' [W/m^2] la mat do dong nhiet qua tiet dien ngang,
+# DeltaT_interface [K] la do nhay nhiet do (temperature jump) tai giao dien,
+# xac dinh tu ngoai suy tuyen tinh profile nhiet do ve 2 phia giao dien.
+#
+#   q'' = (dE/dt) / A
+# voi dE/dt la toc do nang luong bom vao vung nong (hoac rut ra vung lanh)
+# o trang thai dung (steady state), A la dien tich mat cat ngang (xy).
+# ==============================================================================
+
+units           metal
+atom_style      atomic
+boundary        p p f
+atom_modify     map array
+newton          on
+
+# CAP NHAT (05/08/2026): tham so hoa de ten file khop chinh xac voi output
+# cua in.03 (restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
+# Truyen tu dong lenh, vd: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
+variable        T_equil    index 300
+variable        pka_species index Ga
+variable        E_pka_keV  index 5.0
+# SUA LOI (05/08/2026, xac nhan tren may that): read_restart bao loi "Did not
+# assign all restart atoms correctly" tren hop triclinic nghieng manh voi
+# nhieu tien trinh MPI. Doi sang read_data (on dinh hon qua kiem chung that).
+read_data ${datafile}
+read_data data.postanneal_300K_N_10.0keV.data
+Reading data file ...
+  triclinic box = (0 0 0) to (61.654054 53.393977 116.90099) with tilt (30.827027 0 0)
+WARNING: Triclinic box skew is large. LAMMPS will run inefficiently. (src/domain.cpp:221)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  33660 atoms
+  reading velocities ...
+  33660 velocities
+  read_data CPU = 0.213 seconds
+
+# Force field DA XAC NHAN - xem 02_Force_Field/LJ_interface_crossterms_UFF.md
+variable        lj_scale index 1.0     # he so scale LJ giao dien cho sensitivity scan
+# CANH BAO GPU (05/08/2026): KHONG dung "-sf gpu" (loi "GPU package styles
+# must not be used multiple times" khi 2 substyle TRUNG TEN). Chi dung
+# "-pk gpu 1 platform X" - xem QUY_TRINH_CHAY_NGHIEN_CUU.md.
+# CAP NHAT (06/08/2026, nang cap hieu nang): substyle GaN chuyen sang
+# "tersoff/gpu", substyle SiC giu "tersoff" (CPU) - 2 ten KHAC NHAU nen
+# khong bi chan, khong con can chi so 1/2 trong pair_coeff. Da kiem chung
+# qua test proxy (tersoff/omp), PotEng khop chinh xac voi ban CPU thuan.
+# CAP NHAT (05/08/2026, xac nhan qua test that): BAT BUOC them "neigh no"
+# vao lenh -pk gpu, neu khong se loi "Must not use GPU neighbor lists with
+# hybrid pair style".
+# CAP NHAT (11/08/2026, sau 12 to hop chay on dinh khong crash): BAT LAI OMP
+# cho substyle SiC, GIOI HAN tong luong = 14 (giu dung 70%% da chot) bang
+# cach GIAM MPI tu 14 xuong 7 VA them 2 luong OMP/tien trinh (7x2=14 luong).
+# RUI RO: neu LAMMPS khong bien dich kem OPENMP se bao loi ngay khi khoi
+# dong - neu gap, doi ve "tersoff" (bo /omp) va "-n 14" (bo "-pk omp").
+pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
+pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
+Reading tersoff potential file GaN.tersoff with DATE: 2007-10-22
+pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C
+Reading tersoff potential file SiC.tersoff with DATE: 2011-04-26
+pair_coeff      1 1 lj/cut 0.0 1.0 2.0
+pair_coeff      2 2 lj/cut 0.0 1.0 2.0
+pair_coeff      1 2 lj/cut 0.0 1.0 2.0
+pair_coeff      3 3 lj/cut 0.0 1.0 2.0
+pair_coeff      4 4 lj/cut 0.0 1.0 2.0
+pair_coeff      3 4 lj/cut 0.0 1.0 2.0
+pair_coeff      1 3 lj/cut $(0.01771*v_lj_scale) 3.8654   # Ga-Si (UFF combining rule)
+pair_coeff      1 3 lj/cut 0.017710000000000000048 3.8654   
+pair_coeff      1 4 lj/cut $(0.00905*v_lj_scale) 3.6602   # Ga-C
+pair_coeff      1 4 lj/cut 0.0090500000000000007522 3.6602   
+pair_coeff      2 3 lj/cut $(0.00722*v_lj_scale) 3.5322   # N-Si
+pair_coeff      2 3 lj/cut 0.0072199999999999998554 3.5322   
+pair_coeff      2 4 lj/cut $(0.00369*v_lj_scale) 3.3447   # N-C
+pair_coeff      2 4 lj/cut 0.0036900000000000001375 3.3447   
+variable        zlo equal bound(all,zmin)
+variable        zhi equal bound(all,zmax)
+region          r_fixed_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
+region          r_fixed_lo block INF INF INF INF 0.162711547928031 $(v_zlo+3.0) units box
+region          r_fixed_lo block INF INF INF INF 0.162711547928031 3.1627115479280307753 units box
+region          r_fixed_hi block INF INF INF INF $(v_zhi-3.0) ${zhi} units box
+region          r_fixed_hi block INF INF INF INF 111.95026343728700624 ${zhi} units box
+region          r_fixed_hi block INF INF INF INF 111.95026343728700624 114.950263437287 units box
+group           g_fixed region r_fixed_lo
+1200 atoms in group g_fixed
+group           g_fixed_hi region r_fixed_hi
+1083 atoms in group g_fixed_hi
+group           g_fixed union g_fixed g_fixed_hi
+2283 atoms in group g_fixed
+group           g_mobile subtract all g_fixed
+31377 atoms in group g_mobile
+fix             fix_nve    g_mobile nve
+fix             fix_freeze g_fixed setforce 0.0 0.0 0.0
+fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
+timestep        ${dt}
+timestep        0.00025
+thermo          100
+thermo_style    custom step time temp pe ke etotal
+thermo_modify   flush yes
+run             ${nsteps}
+run             8000
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 6, bins = 16 9 20
+  4 neighbor lists, perpetual/occasional/extra = 4 0 0
+  (1) pair tersoff, perpetual, skip from (4)
+      attributes: full, newton on
+      pair build: skip
+      stencil: none
+      bin: none
+  (2) pair tersoff, perpetual, skip from (4)
+      attributes: full, newton on
+      pair build: skip
+      stencil: none
+      bin: none
+  (3) pair lj/cut, perpetual, half/full from (4)
+      attributes: half, newton on, cut 12
+      pair build: halffull/newton/tri
+      stencil: none
+      bin: none
+  (4) neighbor class addition, perpetual
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 36.37 | 36.37 | 36.37 Mbytes
+   Step          Time           Temp          PotEng         KinEng         TotEng    
+         0   0              280.53025     -166654.46      1220.5218     -165433.94    
+       100   0.025          281.79857     -166659.97      1226.04       -165433.93    
+       200   0.05           281.21379     -166657.39      1223.4958     -165433.89    
+       300   0.075          280.94673     -166656.18      1222.3338     -165433.85    
+       400   0.1            283.3257      -166666.53      1232.6842     -165433.85    
+       500   0.125          283.022       -166665.23      1231.3628     -165433.87    
+       600   0.15           281.72999     -166659.63      1225.7416     -165433.89    
+       700   0.175          281.85851     -166660.2       1226.3008     -165433.9     
+       800   0.2            282.30703     -166662.14      1228.2522     -165433.89    
+       900   0.225          282.09674     -166661.22      1227.3373     -165433.88    
+      1000   0.25           282.97569     -166665.03      1231.1614     -165433.87    
+      1100   0.275          281.84424     -166660.11      1226.2387     -165433.87    
+      1200   0.3            281.84718     -166660.13      1226.2515     -165433.87    
+      1300   0.325          280.59537     -166654.67      1220.8051     -165433.87    
+      1400   0.35           280.8299      -166655.7       1221.8255     -165433.87    
+      1500   0.375          281.27777     -166657.63      1223.7741     -165433.86    
+      1600   0.4            282.01412     -166660.81      1226.9778     -165433.84    
+      1700   0.425          281.39262     -166658.13      1224.2738     -165433.86    
+      1800   0.45           281.83196     -166660.04      1226.1852     -165433.85    
+      1900   0.475          283.20798     -166666.02      1232.172      -165433.85    
+      2000   0.5            283.5005      -166667.28      1233.4447     -165433.84    
+      2100   0.525          281.37536     -166658.03      1224.1987     -165433.83    
+      2200   0.55           281.82707     -166659.98      1226.164      -165433.82    
+      2300   0.575          281.4458      -166658.3       1224.5052     -165433.8     
+      2400   0.6            281.01379     -166656.42      1222.6256     -165433.79    
+      2500   0.625          281.67984     -166659.3       1225.5234     -165433.78    
+      2600   0.65           279.79939     -166651.11      1217.342      -165433.77    
+      2700   0.675          282.23531     -166661.72      1227.9401     -165433.78    
+      2800   0.7            281.0483      -166656.55      1222.7757     -165433.78    
+      2900   0.725          282.54202     -166663.07      1229.2745     -165433.8     
+      3000   0.75           280.59939     -166654.63      1220.8226     -165433.81    
+      3100   0.775          281.89218     -166660.26      1226.4473     -165433.82    
+      3200   0.8            283.49758     -166667.29      1233.432      -165433.85    
+      3300   0.825          282.19214     -166661.59      1227.7523     -165433.84    
+      3400   0.85           280.92548     -166656.06      1222.2414     -165433.82    
+      3500   0.875          281.71571     -166659.48      1225.6795     -165433.8     
+      3600   0.9            282.64502     -166663.52      1229.7227     -165433.8     
+      3700   0.925          282.41469     -166662.51      1228.7206     -165433.79    
+      3800   0.95           282.16591     -166661.42      1227.6382     -165433.78    
+      3900   0.975          283.03222     -166665.19      1231.4073     -165433.78    
+      4000   1              281.41422     -166658.15      1224.3678     -165433.79    
+      4100   1.025          282.29042     -166661.97      1228.1799     -165433.79    
+      4200   1.05           281.24763     -166657.45      1223.643      -165433.8     
+      4300   1.075          281.90854     -166660.32      1226.5184     -165433.8     
+      4400   1.1            281.9722      -166660.61      1226.7954     -165433.82    
+      4500   1.125          282.35198     -166662.28      1228.4478     -165433.83    
+      4600   1.15           283.86829     -166668.86      1235.0449     -165433.82    
+      4700   1.175          282.96547     -166664.93      1231.1169     -165433.81    
+      4800   1.2            281.11225     -166656.85      1223.054      -165433.79    
+      4900   1.225          281.82546     -166659.94      1226.157      -165433.79    
+      5000   1.25           282.37433     -166662.33      1228.545      -165433.78    
+      5100   1.275          280.80165     -166655.5       1221.7026     -165433.79    
+      5200   1.3            281.34567     -166657.88      1224.0695     -165433.81    
+      5300   1.325          283.81664     -166668.63      1234.8201     -165433.81    
+      5400   1.35           281.41583     -166658.19      1224.3748     -165433.82    
+      5500   1.375          281.44027     -166658.29      1224.4811     -165433.81    
+      5600   1.4            283.42603     -166666.92      1233.1207     -165433.8     
+      5700   1.425          282.66419     -166663.6       1229.8061     -165433.79    
+      5800   1.45           282.62554     -166663.43      1229.6379     -165433.8     
+      5900   1.475          281.38425     -166658.01      1224.2374     -165433.78    
+      6000   1.5            282.47062     -166662.74      1228.9639     -165433.77    
+      6100   1.525          280.51403     -166654.22      1220.4512     -165433.77    
+      6200   1.55           280.21044     -166652.9       1219.1304     -165433.77    
+      6300   1.575          281.99662     -166660.69      1226.9017     -165433.79    
+      6400   1.6            282.54649     -166663.06      1229.294      -165433.76    
+      6500   1.625          282.12375     -166661.22      1227.4547     -165433.76    
+      6600   1.65           282.57212     -166663.18      1229.4055     -165433.78    
+      6700   1.675          282.56777     -166663.16      1229.3866     -165433.77    
+      6800   1.7            282.96806     -166664.9       1231.1281     -165433.77    
+      6900   1.725          280.56311     -166654.45      1220.6648     -165433.79    
+      7000   1.75           280.68273     -166654.97      1221.1852     -165433.79    
+      7100   1.775          280.97252     -166656.24      1222.446      -165433.79    
+      7200   1.8            280.74683     -166655.27      1221.4641     -165433.81    
+      7300   1.825          281.78126     -166659.77      1225.9647     -165433.81    
+      7400   1.85           281.63007     -166659.09      1225.3069     -165433.79    
+      7500   1.875          282.44203     -166662.62      1228.8395     -165433.78    
+      7600   1.9            280.8676      -166655.78      1221.9895     -165433.79    
+      7700   1.925          281.31277     -166657.71      1223.9264     -165433.78    
+      7800   1.95           282.90615     -166664.64      1230.8588     -165433.78    
+      7900   1.975          279.97833     -166651.9       1218.1206     -165433.78    
+      8000   2              282.94991     -166664.85      1231.0492     -165433.8     
+Loop time of 550.291 on 1 procs for 8000 steps with 33660 atoms
+
+Performance: 0.314 ns/day, 76.429 hours/ns, 14.538 timesteps/s, 489.341 katom-step/s
+92.4% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 545.69     | 545.69     | 545.69     |   0.0 | 99.16
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 1.2049     | 1.2049     | 1.2049     |   0.0 |  0.22
+Output  | 0.33683    | 0.33683    | 0.33683    |   0.0 |  0.06
+Modify  | 2.5831     | 2.5831     | 2.5831     |   0.0 |  0.47
+Other   |            | 0.4741     |            |       |  0.09
+
+Nlocal:          33660 ave       33660 max       33660 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          37487 ave       37487 max       37487 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    1.03415e+06 ave 1.03415e+06 max 1.03415e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 1034147
+Ave neighs/atom = 30.723321
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:09:10

@@ -1,0 +1,8 @@
+23:02 start data.equil_300K.data dt=0.001
+23:04 start data.equil_300K.data dt=0.0005
+23:08 start data.postanneal_300K_Ga_1.0keV.data dt=0.001
+23:09 start data.postanneal_300K_Ga_1.0keV.data dt=0.0005
+23:13 start data.postanneal_300K_N_10.0keV.data dt=0.001
+23:15 start data.postanneal_300K_N_10.0keV.data dt=0.0005
+23:19 start 10keV dt=0.00025
+23:28 DONE

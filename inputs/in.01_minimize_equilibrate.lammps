@@ -1,0 +1,229 @@
+# ==============================================================================
+# in.01_minimize_equilibrate.lammps
+# Buoc 2 trong quy trinh: Minimization -> Equilibration NVT o nhiet do muc tieu
+# He: giao dien GaN(wurtzite)/SiC(3C), truoc khi ban PKA
+# De xuat: Anh huong khiem khuyet buc xa len truyen nhiet giao dien GaN/SiC (LiDAR)
+# ==============================================================================
+#
+# FORCE FIELD DA XAC NHAN (xem 02_Force_Field/LJ_interface_crossterms_UFF.md):
+#   - GaN.tersoff: Nord-Albe-Erhart 2003, J. Phys.: Condens. Matter 15, 5649
+#     (file chinh thuc phan phoi kem LAMMPS)
+#   - SiC.tersoff: Tersoff 1989, Phys. Rev. B 39, 5566 (file chinh thuc LAMMPS)
+#   - Tuong tac cheo giao dien Ga-Si/Ga-C/N-Si/N-C: LJ "lop keo" (interfacial
+#     glue layer), tham so tu quy tac ket hop UFF (Rappe et al. 1992) - day la
+#     GIAI PHAP GAN DUNG chap nhan duoc cho buoc dau (tuong tu cach lam trong
+#     cac bai bao GaN/diamond da cong bo), CAN hieu chinh lai (DFT hoac
+#     sensitivity scan +/-30-50%) truoc khi dung cho ket qua chinh thuc trong
+#     bai bao SCI.
+# ==============================================================================
+
+# --- 1. Initialization ---
+units           metal
+atom_style      atomic
+boundary        p p f          # p p f: tu do theo z de tranh interaction ao qua bien z khi co NEMD sau nay
+atom_modify     map array
+
+# --- 2. Doc cau truc ---
+read_data       GaN_SiC_interface.data
+
+# --- 2b. Khoi luong nguyen tu (BAT BUOC - file .data tu ASE khong co section
+# Masses, LAMMPS se bao loi "Not all per-type masses are set" neu thieu) ---
+# Thu tu type theo specorder trong build_GaN_SiC_interface.py: Ga N Si C
+mass            1 69.723     # Ga
+mass            2 14.007     # N
+mass            3 28.0855    # Si
+mass            4 12.011     # C
+
+# --- 3. Dinh nghia nhom nguyen tu ---
+group           gan   type 1 2      # Ga N
+group           sic   type 3 4      # Si C
+
+# --- 3b. Lop bien dong bang tai be mat tu do (SUA LOI QUAN TRONG, 04/08/2026) ---
+# Test that phat hien: khi tich phan NVT truc tiep tren TOAN BO he (ke ca
+# nguyen tu ngay tai be mat tu do z), mot so it nguyen tu bien (~0.03% tong
+# so, thuong la nguyen tu it lien ket nhat tai mep) bi day bat ra khoi hop mo
+# phong (bien "f" khong tuan hoan theo z) sau vai tram buoc, gay "Lost atoms".
+# Da thu: tang buffer dt/reset, siet chat xmax, them Langevin giam chan tai
+# bien - KHONG giai quyet duoc. Giai phap thuc su hieu qua (da kiem chung
+# bang test that, chay on dinh qua 1500 buoc khong con mat nguyen tu): DONG
+# BANG lop bien mong (3 Angstrom, ~1 lop nguyen tu) tai ca 2 dau truc z bang
+# setforce 0 (khong tich phan chuyen dong), mo phong hieu ung "vat lieu ban
+# dau tiep tuc ngoai hop" - day la ky thuat chuan trong MD be mat/mang mong,
+# nhat quan voi cach in.02/in.03/in.04 da xu ly bien (g_boundary).
+variable        zlo_s equal bound(all,zmin)
+variable        zhi_s equal bound(all,zmax)
+region          r_frz_lo block INF INF INF INF ${zlo_s} $(v_zlo_s+3.0) units box
+region          r_frz_hi block INF INF INF INF $(v_zhi_s-3.0) ${zhi_s} units box
+group           g_frozen region r_frz_lo
+group           g_frozen_hi region r_frz_hi
+group           g_frozen union g_frozen g_frozen_hi
+group           g_mobile subtract all g_frozen
+print           "So nguyen tu dong bang tai bien (3A moi dau): $(count(g_frozen))"
+
+# SUA LOI (07/08/2026, phong ngua chu dong sau khi in.02 gap "Lost atoms" o
+# E_pka_keV=7.0): them tuong phan xa cung (elastic) tai chinh bien hop theo
+# truc z, CHI kich hoat trong truong hop hiem nguyen tu sap thoat ra ngoai -
+# khong anh huong vat ly binh thuong. Xem giai thich day du trong in.02.
+fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
+
+# --- 4. Force field (DA XAC NHAN - xem 02_Force_Field/LJ_interface_crossterms_UFF.md) ---
+variable        lj_scale index 1.0     # he so scale LJ giao dien cho sensitivity scan
+                                        # (vd chay: lmp -var lj_scale 0.5 -in in.01...)
+# CANH BAO GPU (05/08/2026): pair_style dung 2 lan "tersoff" (GaN va SiC,
+# phan biet bang chi so 1/2 trong pair_coeff ben duoi). Goi GPU package cua
+# LAMMPS KHONG cho phep 1 kieu pair da duoc suffix /gpu xuat hien 2 lan trong
+# hybrid/overlay ("GPU package styles must not be used multiple times") - se
+# bao loi ngay neu chay voi "-sf gpu" (auto-suffix ca 2 tersoff). Do do
+# KHONG dung "-sf gpu" tren dong lenh cho cac file in.0X.
+# CAP NHAT (06/08/2026, nang cap hieu nang, xac nhan bang test that): pair
+# style "tersoff/gpu" TON TAI trong GPU package (kiem tra qua source code
+# that cua ban LAMMPS dang dung + doc chinh thuc pair_tersoff.html). Gioi han
+# "styles must not be used multiple times" CHI kich hoat khi 2 substyle
+# TRUNG TEN CHU literal (vd ca 2 deu "tersoff/gpu" do -sf gpu tu dong suffix
+# giong het nhau) - neu dat TEN KHAC NHAU tuong minh (1 cai "tersoff/gpu", 1
+# cai van la "tersoff" CPU) thi khong bi chan. Da chon substyle GaN (21660
+# nguyen tu, nhieu hon SiC 12000 nguyen tu) de chuyen len GPU nham toi da hoa
+# phan tai duoc giam tren CPU. Da KIEM CHUNG bang test that (proxy dung
+# tersoff/omp vi sandbox khong co GPU package): PotEng tinh ra khop CHINH XAC
+# (-167244 eV) voi ban CPU thuan, xac nhan tach substyle theo cach nay bao
+# toan vat ly, khong sai lech. Ten 2 substyle GIO KHAC NHAU ("tersoff/gpu" vs
+# "tersoff") nen pair_coeff KHONG con can chi so 1/2 phan biet nua.
+# CAP NHAT (05/08/2026, xac nhan qua test that): BAT BUOC them "neigh no"
+# vao lenh -pk gpu, neu khong se loi "Must not use GPU neighbor lists with
+# hybrid pair style".
+# CAP NHAT (06/08/2026, gioi han ~70%% CPU): DA THU tersoff/omp + -pk omp 2
+# roi ROLLBACK ve "tersoff" thuong vi lo qua tai CPU (100%% 20 luong).
+# CAP NHAT (11/08/2026, sau 12 to hop chay on dinh khong crash): BAT LAI OMP
+# cho substyle SiC, nhung lan nay GIOI HAN tong luong = 14 (giu dung muc
+# 70%% da chot truoc do, KHONG tang tai CPU) bang cach GIAM MPI tu 14 xuong 7
+# VA them 2 luong OMP/tien trinh (7x2=14 luong). Day la lan dau doi ca so
+# tien trinh LAN co che OMP cung luc - RUI RO: neu ban LAMMPS khong bien
+# dich kem OPENMP package se bao loi "Unknown pair style tersoff/omp" hoac
+# "Unknown package omp" NGAY KHI KHOI DONG (vai giay) - neu gap, bao lai de
+# doi ve "tersoff" (bo /omp) va "-n 14" (bo "-pk omp") trong file .bat.
+pair_style      hybrid/overlay tersoff/gpu tersoff/omp lj/cut/gpu 10.0
+pair_coeff      * * tersoff/gpu GaN.tersoff Ga N NULL NULL
+pair_coeff      * * tersoff/omp SiC.tersoff NULL NULL Si C
+# Tat LJ cho cac cap da duoc Tersoff xu ly (tranh double-counting), cutoff nho
+# (2.0 A) de giam chi phi tim neighbor list khong can thiet (toi uu nho)
+pair_coeff      1 1 lj/cut/gpu 0.0 1.0 2.0     # Ga-Ga
+pair_coeff      2 2 lj/cut/gpu 0.0 1.0 2.0     # N-N
+pair_coeff      1 2 lj/cut/gpu 0.0 1.0 2.0     # Ga-N
+pair_coeff      3 3 lj/cut/gpu 0.0 1.0 2.0     # Si-Si
+pair_coeff      4 4 lj/cut/gpu 0.0 1.0 2.0     # C-C
+pair_coeff      3 4 lj/cut/gpu 0.0 1.0 2.0     # Si-C
+# LJ "lop keo" giao dien - tham so tu UFF combining rule (epsilon[eV] sigma[A])
+pair_coeff      1 3 lj/cut/gpu $(0.01771*v_lj_scale) 3.8654   # Ga-Si
+pair_coeff      1 4 lj/cut/gpu $(0.00905*v_lj_scale) 3.6602   # Ga-C
+pair_coeff      2 3 lj/cut/gpu $(0.00722*v_lj_scale) 3.5322   # N-Si
+pair_coeff      2 4 lj/cut/gpu $(0.00369*v_lj_scale) 3.3447   # N-C
+
+# --- 5. Thiet lap tinh toan / theo doi ---
+compute         pe_atom all pe/atom
+compute         ke_atom all ke/atom
+compute         stress_atom all stress/atom NULL
+
+thermo          100
+thermo_style    custom step temp pe ke etotal press vol fmax fnorm
+thermo_modify   flush yes
+
+# --- 6. Minimization (loai bo overlap/nang luong cao ban dau) ---
+# NANG CAP (04/08/2026, theo phan bien chuyen gia): minimize 1 giai doan cg
+# tu cau hinh ASE ban dau (chua duoc relax) de lai luc du (~3-4 eV/A) khi bi
+# gioi han so vong lap trong luc test nhanh - da xac nhan bang test that day
+# la nguyen nhan goc gay "Lost atoms" khi "velocity create" bom dong nang vao
+# mot cau truc con luc du lon.
+#
+# CAP NHAT QUAN TRONG (04/08/2026, sau khi test that voi cau hinh production
+# day du tren may 2-CPU): ban dau du dinh dung 2 giai doan fire->cg. Test
+# thuc te cho thay FIRE hoi tu rat tot mot minh (Fmax = 0.213 eV/A, dung
+# tieu chi "energy tolerance", chi mat 230 vong lap thuc te, ~5s tren 2 nhan
+# CPU yeu). NHUNG khi chay tiep CG ngay sau FIRE, CG lam Fmax XAU DI (tang tu
+# 0.213 len 2.528 eV/A!) - CG dung lai qua som theo tieu chi energy tolerance
+# trong khi luc nguyen tu lon dan len, va equilibration NVT sau do crash
+# "Lost atoms" ngay o step 200. Day la bang chung thuc te (khong phai suy
+# doan) cho thay chuoi FIRE->CG KHONG luon cai thien hoi tu cho he nay - CG
+# co the lam xau di neu bat dau tu mot diem FIRE da hoi tu tot. QUYET DINH:
+# chi dung FIRE, BO giai doan CG thu hai.
+#
+# CAP NHAT THU HAI (cung ngay, test tiep theo): thu SIET CHAT tolerance
+# (1e-8/1e-10, cho phep toi 5000 vong lap) voi hy vong hoi tu sau hon - test
+# that cho thay dieu NGUOC LAI: FIRE KHONG dung lai som theo energy tolerance
+# nua (vi tolerance qua chat), ma tiep tuc chay qua vung dao dong (oscillation)
+# cua thuat toan FIRE gan cuc tieu - Fmax dao dong khong don dieu (0.62 ->
+# 0.25 -> 1.02 -> 0.29 -> ... -> 2.15 eV/A o step 2000), TE HON diem hoi tu
+# som ban dau. KET LUAN: voi he nay, tolerance long hon (1e-6/1e-8) cho phep
+# FIRE dung lai SOM va SACH ngay khi dat cuc tieu tot (step 230, Fmax=0.213),
+# trong khi tolerance chat hon phan tac dung, khien thuat toan chay qua diem
+# hoi tu tot va roi vao dao dong. QUYET DINH CUOI CUNG (da kiem chung ca
+# minimize LAN buoc chuyen sang NVT khong Lost atoms): dung dung tham so da
+# thanh cong o lan test dau (1e-6/1e-8, gioi han 2000/20000 vong lap - du
+# de dat toi diem dung som qua tieu chi energy tolerance, KHONG duoc siet
+# chat hon hoac tang gioi han vong lap qua muc nay cho he pilot 33660 nguyen
+# tu, se can kiem tra lai rieng cho he production lon hon).
+min_style       fire
+min_modify      dmax 0.02
+minimize        1.0e-6 1.0e-8 2000 20000
+
+variable        fmax_after_min equal fmax
+print           "=== KIEM TRA HOI TU MINIMIZE: Fmax = ${fmax_after_min} eV/Angstrom ==="
+if "${fmax_after_min} > 1.0" then &
+    "print '*** LOI: Fmax > 1.0 eV/A sau minimize - cau truc CHUA hoi tu du tot. ***'" &
+    "print '*** DUNG chay: kiem tra lai cau truc dau vao (overlap, sai lattice, chua build dung) truoc khi chay equilibration - KHONG tang tolerance/so vong lap mot cach mu quang vi da co bang chung thuc te FIRE co the dao dong xau di neu chay qua diem hoi tu tot (xem ghi chu o tren). Tiep tuc voi Fmax lon se gay Lost atoms. ***'" &
+    "quit 1"
+
+write_dump      all custom dump.after_min.lammpstrj id type x y z c_pe_atom
+
+# --- 7. Equilibration NVT o nhiet do muc tieu ---
+# Chay lan luot cho 3 nhiet do van hanh thuc te cua cam bien LiDAR: 300, 350, 400 K
+# Dung vong lap index + jump de chay tuan tu 3 nhiet do trong 1 file input.
+variable        T_target index 300 350 400
+
+label           loop_temp
+
+reset_timestep  0
+timestep        0.001           # ps (metal units)
+
+velocity        g_mobile create ${T_target} 12345 mom yes rot yes dist gaussian
+
+fix             fix_nvt g_mobile nvt temp ${T_target} ${T_target} 0.1
+fix             fix_freeze_boundary g_frozen setforce 0.0 0.0 0.0
+
+# SUA LOI (04/08/2026, phat hien khi test that, xac nhan lai qua nhieu vong
+# test): chuyen thang sang timestep co dinh 0.001 ps ngay sau "velocity
+# create" co the gay "Lost atoms" khi he chua duoc minimize hoi tu du sau (xem
+# canh bao Fmax o tren). "velocity create" tao ra mot cu soc dong nang dot
+# ngot (Maxwell-Boltzmann hoan toan doc lap voi trang thai truoc do); tich
+# phan ngay bang timestep lon tren nen luc du lon la khong an toan. Dung
+# dt/reset lam vung dem vai ps dau (cung ky thuat da sua trong in.02 cho giai
+# doan cascade) NHU MOT LOP BAO VE THU HAI, ke ca khi minimize da hoi tu tot.
+#
+# LUU Y (04/08/2026): fix nay chi ap dung cho g_mobile (khong bao gom lop
+# bien dong bang o tren) - day la nguyen nhan CHINH gay Lost atoms that su
+# (nguyen tu bien bi day bat khoi hop), khong phai ban than viec chuyen doi
+# timestep. Van giu dt/reset lam lop bao ve bo sung.
+fix             fix_adapt_dt_buffer g_mobile dt/reset 1 1.0e-6 0.001 0.01 units box
+run             5000
+unfix           fix_adapt_dt_buffer
+timestep        0.001
+
+dump            dmp all custom 1000 dump.equil_${T_target}K.lammpstrj id type x y z vx vy vz
+dump_modify     dmp sort id
+
+run             95000           # tong ~100 ps equilibration (5000 dem + 95000 chinh)
+
+unfix           fix_nvt
+unfix           fix_freeze_boundary
+undump          dmp
+
+write_restart   restart.equil_${T_target}K.data
+write_data      data.equil_${T_target}K.data
+
+print           "=== Hoan tat equilibration tai ${T_target} K ==="
+print           "Kiem tra: nhiet do trung binh trong 20 ps cuoi phai on dinh +/- 5%% quanh muc tieu"
+
+next            T_target
+jump            in.01_minimize_equilibrate.lammps loop_temp
+
+print           "Da hoan tat equilibration cho ca 3 nhiet do 300/350/400 K"
+print           "Buoc tiep theo: in.02_pka_cascade.lammps (doc restart.equil_<T>K.data tuong ung)"

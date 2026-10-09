@@ -1,0 +1,113 @@
+# ==============================================================================
+# in.03_anneal_cooldown.lammps
+# Buoc 4: U nhiet va lam nguoi de cum khiem khuyet on dinh sau cascade,
+# truoc khi do NEMD.
+# ==============================================================================
+
+units           metal
+atom_style      atomic
+boundary        p p f
+atom_modify     map array
+newton          on
+
+# CAP NHAT (05/08/2026): tham so hoa de ten file khop chinh xac voi output
+# cua in.02 (restart.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
+# Truyen tu dong lenh, vd: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
+variable        T_equil    index 300
+variable        pka_species index Ga
+variable        E_pka_keV  index 5.0
+# SUA LOI (05/08/2026, xac nhan tren may that): read_restart bao loi "Did not
+# assign all restart atoms correctly" tren hop triclinic nghieng manh voi
+# nhieu tien trinh MPI. Doi sang read_data (on dinh hon qua kiem chung that).
+read_data       data.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
+
+# Force field DA XAC NHAN - xem 02_Force_Field/LJ_interface_crossterms_UFF.md
+variable        lj_scale index 1.0     # he so scale LJ giao dien cho sensitivity scan
+# CANH BAO GPU (05/08/2026): KHONG dung "-sf gpu" (loi "GPU package styles
+# must not be used multiple times" khi 2 substyle TRUNG TEN). Chi dung
+# "-pk gpu 1 platform X" - xem QUY_TRINH_CHAY_NGHIEN_CUU.md.
+# CAP NHAT (06/08/2026, nang cap hieu nang): substyle GaN chuyen sang
+# "tersoff/gpu", substyle SiC giu "tersoff" (CPU) - 2 ten KHAC NHAU nen
+# khong bi chan, khong con can chi so 1/2 trong pair_coeff. Da kiem chung
+# qua test proxy (tersoff/omp), PotEng khop chinh xac voi ban CPU thuan.
+# CAP NHAT (05/08/2026, xac nhan qua test that): BAT BUOC them "neigh no"
+# vao lenh -pk gpu, neu khong se loi "Must not use GPU neighbor lists with
+# hybrid pair style".
+# CAP NHAT (11/08/2026, sau 12 to hop chay on dinh khong crash): BAT LAI OMP
+# cho substyle SiC, GIOI HAN tong luong = 14 (giu dung 70%% da chot) bang
+# cach GIAM MPI tu 14 xuong 7 VA them 2 luong OMP/tien trinh (7x2=14 luong).
+# RUI RO: neu LAMMPS khong bien dich kem OPENMP se bao loi ngay khi khoi
+# dong - neu gap, doi ve "tersoff" (bo /omp) va "-n 14" (bo "-pk omp").
+pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
+pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
+pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C
+pair_coeff      1 1 lj/cut 0.0 1.0 2.0
+pair_coeff      2 2 lj/cut 0.0 1.0 2.0
+pair_coeff      1 2 lj/cut 0.0 1.0 2.0
+pair_coeff      3 3 lj/cut 0.0 1.0 2.0
+pair_coeff      4 4 lj/cut 0.0 1.0 2.0
+pair_coeff      3 4 lj/cut 0.0 1.0 2.0
+pair_coeff      1 3 lj/cut $(0.01771*v_lj_scale) 3.8654   # Ga-Si (UFF combining rule)
+pair_coeff      1 4 lj/cut $(0.00905*v_lj_scale) 3.6602   # Ga-C
+pair_coeff      2 3 lj/cut $(0.00722*v_lj_scale) 3.5322   # N-Si
+pair_coeff      2 4 lj/cut $(0.00369*v_lj_scale) 3.3447   # N-C
+
+variable        T_target equal ${T_equil}  # dat theo nhiet do van hanh (= T_equil o tren)
+variable        T_anneal index 600.0     # u o nhiet do cao hon de thuc day tai hop khiem khuyet -
+                                          # truyen tu dong lenh: -var T_anneal 700
+
+# SUA LOI (05/08/2026, phong ngua chu dong): script goc ap "fix nvt" truc tiep
+# len "all" (bao gom ca lop nguyen tu ngoai cung theo truc z, boundary p p f
+# khong tuan hoan) trong toi 100000 buoc o nhiet do cao toi 600K - CUNG mot
+# co che gay "Lost atoms" da xac nhan that trong in.01 (NVT don gian, khong
+# cascade) va in.02 (cascade). in.03 chua tung crash nhung chua co bang chung
+# la an toan - chi la CHUA gap truong hop xau. Them lop bien dong bang 3A
+# giong het in.01/in.02/in.04 de loai tru rui ro nay truoc khi chay that.
+variable        zlo equal bound(all,zmin)
+variable        zhi equal bound(all,zmax)
+region          r_edge_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
+region          r_edge_hi block INF INF INF INF $(v_zhi-3.0) ${zhi} units box
+group           g_edge_lo region r_edge_lo
+group           g_edge_hi region r_edge_hi
+group           g_edge   union g_edge_lo g_edge_hi
+group           g_mobile subtract all g_edge
+fix             fix_edge_freeze g_edge setforce 0.0 0.0 0.0
+
+# SUA LOI (07/08/2026, phong ngua chu dong sau khi in.02 gap "Lost atoms" o
+# E_pka_keV=7.0): them tuong phan xa cung (elastic) tai chinh bien hop theo
+# truc z, CHI kich hoat trong truong hop hiem nguyen tu sap thoat ra ngoai -
+# khong anh huong vat ly binh thuong. Xem giai thich day du trong in.02.
+fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
+
+timestep        0.001
+
+thermo          200
+thermo_style    custom step temp pe ke etotal
+thermo_modify   flush yes
+
+# --- U nhiet len T_anneal trong 20 ps (chi tich phan g_mobile, g_edge dong bang) ---
+fix             fix_ramp_up g_mobile nvt temp ${T_target} ${T_anneal} 0.1
+run             20000
+unfix           fix_ramp_up
+
+# --- Giu o T_anneal 30 ps de cum khiem khuyet tai hop/on dinh ---
+fix             fix_hold g_mobile nvt temp ${T_anneal} ${T_anneal} 0.1
+run             30000
+unfix           fix_hold
+
+# --- Lam nguoi tu tu ve T_target trong 30 ps ---
+fix             fix_ramp_down g_mobile nvt temp ${T_anneal} ${T_target} 0.1
+run             30000
+unfix           fix_ramp_down
+
+# --- On dinh o T_target them 20 ps ---
+fix             fix_final g_mobile nvt temp ${T_target} ${T_target} 0.1
+run             20000
+unfix           fix_final
+
+write_restart   restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
+write_data      data.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
+
+print           "=== Hoan tat u nhiet + lam nguoi ==="
+print           "Buoc tiep theo: in.04_nemd_thermal.lammps (do do dan nhiet giao dien)"
+print           "PHAI kiem tra bang DXA/CNA: cau truc khiem khuyet con lai sau u nhiet (khong bi anneal het)"
