@@ -1,0 +1,12 @@
+{
+  "title": "GaN/SiC cascade-NEMD: code and data for \"Spurious enhancement of thermal boundary conductance in cascade-NEMD simulations of GaN/SiC caused by damage-amplified integration error\"",
+  "upload_type": "software",
+  "description": "LAMMPS inputs, interatomic potentials, analysis scripts, processed data and figures accompanying the manuscript submitted to Computational Materials Science (COMMAT-D-26-04311). Raw logs, temperature profiles and structures of the 165 original runs are archived separately.",
+  "creators": [
+    {"name": "Nguyen, Xuan-Huy"},
+    {"name": "Nguyen, Thanh-Tuan"},
+    {"name": "Le, Chau-Tan-Phat"}
+  ],
+  "license": "mit",
+  "keywords": ["molecular dynamics", "NEMD", "thermal boundary conductance", "GaN/SiC", "radiation damage", "Tersoff potential", "LAMMPS"]
+}

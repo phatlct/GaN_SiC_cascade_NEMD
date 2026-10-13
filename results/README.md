@@ -13,6 +13,6 @@ content; layout details (figure size, legend placement) may differ slightly.
 | `Fig5_mechanism.png` | Fig. 5 | NVE energy drift vs timestep; S vs cutoff-zone pairs; pair counts by damage level | `analysis/plot_paper_figs.py fig4` |
 | `Fig6_corrected_G.png` | Fig. 6 | Same-structure G comparison; G_reg pristine vs 10 keV N-PKA | `analysis/plot_paper_figs.py fig5` |
 | `Fig7_plane_vs_region.png` | Fig. 7 | Plane-based G vs exclusion width and region-based G_reg | `analysis/plot_paper_figs.py fig7` |
-| `FigS3_Jc_based_G.png` | Supplementary | J_c-based G vs PKA energy | `analysis/plot_paper_figs.py si3` |
+| `FigS1_Jc_based_G.png` | Fig. S1 | J_c-based G vs PKA energy | `analysis/plot_paper_figs.py si3` |
 
 Input data and exact commands are given in the top-level README.md.

@@ -342,7 +342,7 @@ def fig4(nved, cutcsv):
 
 
 # ============================================================
-# Supplementary Fig S3 — J_c-based G vs PKA energy
+# Supplementary Fig S1 — J_c-based G vs PKA energy
 # ============================================================
 
 def si3(legacy):
@@ -372,8 +372,8 @@ def si3(legacy):
     ax.text(0.5, -0.30, "\n".join(txt),
             transform=ax.transAxes, ha="center", va="top", fontsize=7)
     fig.tight_layout()
-    fig.savefig("FigS3_Jc_based_G.png", dpi=300, bbox_inches="tight")
-    print("FigS3_Jc_based_G.png")
+    fig.savefig("FigS1_Jc_based_G.png", dpi=300, bbox_inches="tight")
+    print("FigS1_Jc_based_G.png")
 
 
 # ============================================================
