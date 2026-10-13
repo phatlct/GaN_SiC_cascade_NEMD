@@ -10,8 +10,7 @@ Computational Materials Science, COMMAT-D-26-04311).
 Archived version: https://doi.org/10.5281/zenodo.23255970
 
 Code is released under the MIT License (LICENSE). Data are released under
-CC BY 4.0. Comments in the analysis scripts are in English; some comments in
-the LAMMPS inputs (inputs/, data/nve_drift/) are in Vietnamese.
+CC BY 4.0. All code comments are in English.
 
 ## Contents
 
@@ -39,7 +38,7 @@ analysis/    post-processing and plotting
   plot_paper_figs.py    Figs. 2-7 and S1
   plot_fig1.py          Fig. 1 (schematic, no data needed)
 
-results/     rendered figures (PNG)
+results/     figures as published in the manuscript (PNG), see results/README.md
 
 data/
   summary/recompute_G_original165.csv   per-run results, 165 original runs
@@ -85,8 +84,10 @@ Fig. 7:  python3 ../../analysis/plot_paper_figs.py fig7 recompute_G.csv ../../an
 Fig. S1: python3 ../../analysis/plot_paper_figs.py si3 ../summary/recompute_G_original165.csv
 ```
 
-Figs. 3 and 4 take explicit log and profile paths; see the usage notes at the
-top of plot_paper_figs.py.
+Fig. 3 (plot_paper_figs.py figE) and Fig. 4 (plot_paper_figs.py fig3) also
+need the dt = 1 fs logs and temperature profiles of the same structures, which
+are part of the raw-data archive below; see the usage notes at the top of
+plot_paper_figs.py.
 
 Cutoff-zone pair counts (Table 2, Fig. 5c):
 

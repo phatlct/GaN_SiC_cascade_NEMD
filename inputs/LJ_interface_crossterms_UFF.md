@@ -1,60 +1,63 @@
-# Tham số LJ cho tương tác chéo tại giao diện GaN/SiC (Ga-Si, Ga-C, N-Si, N-C)
+# Interatomic potentials for the GaN/SiC interface
 
-## Kết luận chính: CÓ, bắt buộc cần potentials, và đã xác định được bộ đầy đủ
+The Ga-N-Si-C system is described with three components:
 
-Hệ 4 nguyên tố Ga-N-Si-C cần:
-1. Thế năng cho khối GaN (Ga-Ga, Ga-N, N-N)
-2. Thế năng cho khối SiC (Si-Si, Si-C, C-C)
-3. Thế năng cho tương tác CHÉO tại giao diện (Ga-Si, Ga-C, N-Si, N-C) — đây là phần **không có sẵn công khai** cho cặp GaN-SiC, đúng như rủi ro đã nêu trong đề xuất ban đầu.
+1. GaN bulk (Ga-Ga, Ga-N, N-N): Tersoff potential of Nord et al.
+2. SiC bulk (Si-Si, Si-C, C-C): Tersoff potential of Tersoff.
+3. Cross-interface pairs (Ga-Si, Ga-C, N-Si, N-C): Lennard-Jones 12-6,
+   parameterised with the Universal Force Field (UFF) combining rules.
 
-## Bộ giải pháp đã xác nhận qua tài liệu thật
+The two Tersoff parameterisations are combined in LAMMPS as two instances of
+`pair_style hybrid/overlay tersoff tersoff`, and the cross-interface pairs are
+added with `lj/cut` (cutoff 10 Angstrom). Same-material LJ pairs are switched
+off (epsilon = 0).
 
-### 1. GaN.tersoff — ĐÃ TẢI, nguồn xác thực
-Nord, J.; Albe, K.; Erhart, P.; Nordlund, K. *J. Phys.: Condens. Matter* 15, 5649 (2003).
-File chính thức phân phối kèm LAMMPS (Sandia National Labs, contributor Xiaowang Zhou):
-https://raw.githubusercontent.com/lammps/lammps/develop/potentials/GaN.tersoff
-→ Đã lưu tại `01_Code_MD_Simulation/02_Force_Field/GaN.tersoff`
+## Bulk potentials
 
-### 2. SiC.tersoff — ĐÃ TẢI, nguồn xác thực
-Tersoff, J. *Phys. Rev. B* 39, 5566–5568 (1989), hiệu đính PRB 41, 3248.
-File chính thức phân phối kèm LAMMPS (contributor Aidan Thompson, Sandia):
-https://raw.githubusercontent.com/lammps/lammps/develop/potentials/SiC.tersoff
-→ Đã lưu tại `01_Code_MD_Simulation/02_Force_Field/SiC.tersoff`
+| File | Reference | Source |
+|---|---|---|
+| `GaN.tersoff` | J. Nord, K. Albe, P. Erhart, K. Nordlund, *J. Phys.: Condens. Matter* 15, 5649 (2003) | LAMMPS distribution, `potentials/GaN.tersoff` |
+| `SiC.tersoff` | J. Tersoff, *Phys. Rev. B* 39, 5566 (1989); erratum *Phys. Rev. B* 41, 3248 (1990) | LAMMPS distribution, `potentials/SiC.tersoff` |
 
-**Quan trọng**: Đổi từ đề xuất ban đầu (Vashishta cho SiC) sang dùng Tersoff cho cả 2 vật liệu, vì:
-- Cả GaN.tersoff và SiC.tersoff đều là cùng dạng hàm Tersoff → tương thích khi khai báo trong LAMMPS bằng 2 instance riêng của `pair_style hybrid/overlay tersoff tersoff`.
-- Vashishta (dạng hàm khác Tersoff hoàn toàn) không thể kết hợp trực tiếp với Tersoff bằng cùng 1 pair_coeff mixing — sẽ phức tạp hơn khi cần tương tác chéo.
+## Cross-interface Lennard-Jones parameters
 
-### 3. Tương tác chéo giao diện (Ga-Si, Ga-C, N-Si, N-C) — dùng Lennard-Jones "lớp keo" (interfacial glue layer)
+Mixed Tersoff/LJ descriptions of this type are commonly used for
+heterointerfaces for which no fitted cross-interaction potential is
+available (e.g. GaN/diamond).
 
-**Căn cứ phương pháp (không tự bịa)**: tra cứu thực tế cho thấy đây là cách làm chuẩn trong các bài báo GaN/diamond đã công bố — "tương tác giữa nguyên tử GaN và diamond tại giao diện được đặc trưng bằng thế năng Lennard-Jones" trong khi khối GaN dùng EAM và khối diamond dùng Tersoff (theo tổng hợp từ nhiều bài báo GaN/diamond MD, xem bibliography.md mục B). Tài liệu cũng ghi nhận rõ đây là giải pháp có đánh đổi độ chính xác ("mixing different types of potentials... usually accompanied by a decrease in simulation accuracy") — CẦN NÊU RÕ HẠN CHẾ NÀY khi viết Methodology.
+UFF element parameters (A. K. Rappé, C. J. Casewit, K. S. Colwell,
+W. A. Goddard III, W. M. Skiff, *J. Am. Chem. Soc.* 114, 10024 (1992)):
 
-**Tham số LJ cụ thể** — tính từ quy tắc kết hợp (combining rule) chuẩn của UFF (Universal Force Field, Rappé et al., *J. Am. Chem. Soc.* 1992, 114, 10024–10035), lấy dữ liệu gốc từ bảng tham số UFF (nguồn: Open Babel UFF.prm, https://raw.githubusercontent.com/openbabel/openbabel/master/data/UFF.prm — triển khai mã nguồn mở công khai của bảng UFF gốc):
-
-| Nguyên tố | x1 (Rmin, Å) | D1 (kcal/mol) |
+| Element | x_I (Angstrom) | D_I (kcal/mol) |
 |---|---|---|
 | C  | 3.851 | 0.105 |
 | N  | 3.660 | 0.069 |
 | Si | 4.295 | 0.402 |
 | Ga | 4.383 | 0.415 |
 
-Quy tắc kết hợp UFF (geometric mean): x1_ij = sqrt(x1_i × x1_j), D1_ij = sqrt(D1_i × D1_j)
-Chuyển đổi sang LAMMPS `pair_style lj/cut` (units metal, eV/Angstrom):
-sigma = x1_ij / 2^(1/6);  epsilon [eV] = D1_ij [kcal/mol] × 0.0433641
+Combining rules (geometric mean) and conversion to LAMMPS `lj/cut`
+(units metal):
 
-**Kết quả tính toán (đã kiểm tra bằng Python)**:
+    x_IJ = sqrt(x_I * x_J)
+    D_IJ = sqrt(D_I * D_J)
+    sigma   = x_IJ / 2^(1/6)
+    epsilon = D_IJ * 0.0433641   (kcal/mol -> eV)
 
-| Cặp | x1_ij (Å) | D1_ij (kcal/mol) | sigma (Å) | epsilon (eV) |
+| Pair | x_IJ (Angstrom) | D_IJ (kcal/mol) | sigma (Angstrom) | epsilon (eV) |
 |---|---|---|---|---|
 | Ga-Si | 4.3388 | 0.4084 | 3.8654 | 0.01771 |
 | Ga-C  | 4.1084 | 0.2087 | 3.6602 | 0.00905 |
 | N-Si  | 3.9648 | 0.1665 | 3.5322 | 0.00722 |
 | N-C   | 3.7543 | 0.0851 | 3.3447 | 0.00369 |
 
-## CẢNH BÁO QUAN TRỌNG — mức độ tin cậy của tham số LJ này
+These values are used in all LAMMPS inputs (`pair_coeff 1 3`, `1 4`, `2 3`,
+`2 4`).
 
-Đây là ước lượng bằng quy tắc kết hợp UFF tổng quát (dùng cho hoá học phân tử, KHÔNG fit riêng cho vật liệu rắn/ceramic). Đây là điểm khởi đầu hợp lý để chạy thử nghiệm (proof-of-concept) nhưng **PHẢI hiệu chỉnh lại trước khi dùng cho production/paper chính thức**, cụ thể:
-1. Kiểm tra năng lượng bám dính giao diện (adhesion/interfacial energy) tính được có hợp lý so với năng lượng liên kết thực nghiệm hoặc DFT không (nếu có tài liệu).
-2. Nếu có thể, tính DFT cho vài cấu hình giao diện nhỏ (slab mỏng) để fit lại epsilon/sigma thay vì dùng UFF thô.
-3. Xem xét quét độ nhạy (sensitivity scan): chạy NEMD với epsilon dao động ±30-50% để đánh giá TBC nhạy thế nào với tham số giao diện — đây cũng là một phần kết quả đáng báo cáo trong bài (uncertainty quantification).
-4. Trích dẫn rõ trong Methodology: tham số liên kết chéo GaN-SiC KHÔNG có trong tài liệu công bố tính đến thời điểm tra cứu (04/08/2026), là hạn chế đã biết và đã xử lý bằng phương pháp gần đúng UFF + LJ, tương tự cách tiếp cận cho giao diện GaN/diamond trong y văn.
+## Limitations
+
+UFF is a generic force field developed for molecular systems; the
+cross-interface parameters above are not fitted to interfacial adhesion
+energies or interfacial phonon properties of GaN/SiC. Absolute values of the
+interfacial conductance therefore depend on this choice. The LAMMPS inputs
+expose a scaling factor `lj_scale` (default 1.0) that multiplies all
+cross-interface epsilon values and can be used for sensitivity scans.

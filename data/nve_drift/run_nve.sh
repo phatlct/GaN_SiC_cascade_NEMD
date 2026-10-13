@@ -1,5 +1,5 @@
 #!/bin/bash
-# Chay trong thu muc 08_NVE_Drift. 2 ps NVE moi run.
+# NVE drift runs (2 ps per run) for the three test structures in this directory.
 cd "$(dirname "$0")"
 for f in data.equil_300K.data data.postanneal_300K_Ga_1.0keV.data data.postanneal_300K_N_10.0keV.data; do
   for pair in "0.001 2000" "0.0005 4000"; do
