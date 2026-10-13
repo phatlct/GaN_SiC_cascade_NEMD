@@ -1,21 +1,8 @@
-# Electronic stopping table for fix electron/stopping (LAMMPS, units metal)
-# Columns: energy(eV)  Se_Ga(eV/A)  Se_N(eV/A)  Se_Si(eV/A)  Se_C(eV/A)
-# Column order must match the atom types of the GaN/SiC data file:
-#   type 1 = Ga, type 2 = N, type 3 = Si, type 4 = C
-#
-# Data source:
-#   Si column: SRIM-derived stopping of Si self-ions in Si, from the LAMMPS
-#   example examples/PACKAGES/electron_stopping/Si.Si.elstop (R. Toijala,
-#   University of Helsinki, 2019).
-#   https://github.com/lammps/lammps/blob/develop/examples/PACKAGES/electron_stopping/Si.Si.elstop
-#   Ga, N and C columns: the Si-in-Si values are used for all species as an
-#   order-of-magnitude approximation (1-50 eV/A over 1-250 keV; cf. K. Nordlund,
-#   Radiation Damage in Materials, course notes). Species-specific SRIM tables
-#   for Ga/N in GaN and C in SiC are not used; PKA energies are therefore
-#   nominal (see the manuscript, Section 2.2).
-#
-# The 10 eV point (below Ecut = 10.0 set in the fix) has Se = 0; stopping is
-# interpolated linearly to zero in the near-thermal regime.
+# Electronic stopping table for fix electron/stopping (units metal).
+# Columns: energy(eV)  Se_Ga  Se_N  Se_Si  Se_C  (eV/A), atom types 1-4.
+# Si-in-Si SRIM data from the LAMMPS example
+# examples/PACKAGES/electron_stopping/Si.Si.elstop (R. Toijala, 2019),
+# used for all four species.
 #
 #   energy(eV)  Se_Ga      Se_N       Se_Si      Se_C
       10.0         0.0        0.0        0.0        0.0

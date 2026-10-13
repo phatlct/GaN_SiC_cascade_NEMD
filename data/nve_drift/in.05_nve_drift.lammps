@@ -1,14 +1,7 @@
-# ==============================================================================
 # in.05_nve_drift.lammps
-# Thermostat-free NVE test of integration accuracy. A given structure is run
-# in NVE (no thermostats, fixed edge layers, same force field as the NEMD
-# runs) at timestep dt for nsteps steps; the drift of the total energy,
-# dE_tot/dt, is obtained from the log with drift.sh.
-#
-# Usage (see run_nve.sh):
-#   lmp -in in.05_nve_drift.lammps -var datafile <structure.data> \
-#       -var dt 0.001 -var nsteps 2000
-# ==============================================================================
+# Thermostat-free NVE run of a structure at timestep dt for nsteps steps (energy-drift test, same force field as NEMD).
+# Usage (see run_nve.sh): lmp -in in.05_nve_drift.lammps -var datafile <structure.data> -var dt 0.001 -var nsteps 2000
+# Output: log only (etotal every 100 steps); drift from drift.sh.
 
 units           metal
 atom_style      atomic
@@ -16,31 +9,14 @@ boundary        p p f
 atom_modify     map array
 newton          on
 
-# Parameterized so that the file name matches the output of in.03
-# (restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
-# Pass from the command line, e.g.: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
 variable        T_equil    index 300
 variable        pka_species index Ga
 variable        E_pka_keV  index 5.0
-# Note: read_restart fails with "Did not assign all restart atoms correctly"
-# for strongly tilted triclinic boxes on many MPI ranks, so read_data is used.
+# read_data instead of read_restart (restart fails for this tilted box with many MPI ranks)
 read_data ${datafile}
 
-# Force field: see inputs/LJ_interface_crossterms_UFF.md
-variable        lj_scale index 1.0     # interface LJ scaling factor for sensitivity scans
-# GPU note: do not use "-sf gpu" (error "GPU package styles must not be used
-# multiple times" when two substyles have the same name); use only
-# "-pk gpu 1 platform X".
-# For performance, the GaN substyle may run as "tersoff/gpu" while the SiC
-# substyle stays "tersoff" (CPU). With distinct names this restriction does not
-# apply and the 1/2 indices in pair_coeff are not needed; PotEng matches the
-# pure-CPU run exactly (tersoff/omp proxy test).
-# "neigh no" must be added to -pk gpu; otherwise LAMMPS fails with "Must not
-# use GPU neighbor lists with hybrid pair style".
-# OpenMP may be enabled for the SiC substyle while keeping the total thread
-# count at 14 (70 percent of the cores): 7 MPI ranks x 2 OMP threads per rank.
-# If LAMMPS was built without OPENMP it fails at startup; in that case revert
-# to "tersoff" (no /omp) and "-n 14" (no "-pk omp").
+# --- force field: Tersoff GaN + Tersoff SiC, LJ cross terms (inputs/LJ_interface_crossterms_UFF.md) ---
+variable        lj_scale index 1.0     # interface LJ scaling factor
 pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
 pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
 pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C

@@ -1,8 +1,7 @@
-# ==============================================================================
 # in.03_anneal_cooldown.lammps
-# Step 4: anneal and cool down to stabilize defect clusters after the cascade,
-# before the NEMD measurement.
-# ==============================================================================
+# Post-cascade anneal: T -> T_anneal -> T (Nose-Hoover, 100 ps total).
+# Usage: lmp -in in.03_anneal_cooldown.lammps -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
+# Output: restart/data.postanneal_<T>K_<species>_<E>keV.data
 
 units           metal
 atom_style      atomic
@@ -10,31 +9,13 @@ boundary        p p f
 atom_modify     map array
 newton          on
 
-# Parameterized so that file names match the output of in.02
-# (restart.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
-# Pass from the command line, e.g.: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
 variable        T_equil    index 300
 variable        pka_species index Ga
 variable        E_pka_keV  index 5.0
-# read_data is used instead of read_restart: read_restart can fail with "Did not
-# assign all restart atoms correctly" for strongly tilted triclinic boxes
-# with many MPI ranks.
+# read_data instead of read_restart (restart fails for this tilted box with many MPI ranks)
 read_data       data.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
 
-# Force field: see 02_Force_Field/LJ_interface_crossterms_UFF.md
-variable        lj_scale index 1.0     # interface LJ scaling factor for the sensitivity scan
-# GPU note: do not use "-sf gpu" (error "GPU package styles must not be used
-# multiple times" when two substyles have the same name). Use only
-# "-pk gpu 1 platform X"; see QUY_TRINH_CHAY_NGHIEN_CUU.md.
-# For GPU runs the GaN substyle can be "tersoff/gpu" while the SiC substyle stays
-# "tersoff" (CPU); distinct names avoid the restriction and the 1/2 indices in
-# pair_coeff are then not needed. PotEng matches the pure CPU version.
-# "neigh no" is required in -pk gpu; otherwise LAMMPS fails with "Must not use
-# GPU neighbor lists with hybrid pair style".
-# OpenMP can be enabled for the SiC substyle with the total thread count limited
-# to 14 (70%% of the machine): 7 MPI ranks x 2 OMP threads per rank.
-# If LAMMPS is built without OPENMP it fails at startup; in that case use
-# "tersoff" (without /omp) and "-n 14" (without "-pk omp").
+variable        lj_scale index 1.0     # interfacial LJ scale factor
 pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
 pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
 pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C
@@ -49,14 +30,10 @@ pair_coeff      1 4 lj/cut $(0.00905*v_lj_scale) 3.6602   # Ga-C
 pair_coeff      2 3 lj/cut $(0.00722*v_lj_scale) 3.5322   # N-Si
 pair_coeff      2 4 lj/cut $(0.00369*v_lj_scale) 3.3447   # N-C
 
-variable        T_target equal ${T_equil}  # operating temperature (= T_equil above)
-variable        T_anneal index 600.0     # higher anneal temperature to promote defect recombination;
-                                          # set from the command line: -var T_anneal 700
+variable        T_target equal ${T_equil}
+variable        T_anneal index 600.0
 
-# Frozen 3 A boundary layers, as in in.01/in.02/in.04. Applying "fix nvt" to
-# "all", including the outermost atoms along the non-periodic z direction
-# (boundary p p f), for up to 100000 steps at temperatures up to 600 K can cause
-# "Lost atoms". Thermostatting only g_mobile avoids this.
+# --- frozen 3 A layers at both z ends ---
 variable        zlo equal bound(all,zmin)
 variable        zhi equal bound(all,zmax)
 region          r_edge_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
@@ -67,9 +44,6 @@ group           g_edge   union g_edge_lo g_edge_hi
 group           g_mobile subtract all g_edge
 fix             fix_edge_freeze g_edge setforce 0.0 0.0 0.0
 
-# Elastic reflecting walls at the z box boundaries. They act only in the rare
-# case of an atom about to leave the box and do not affect normal dynamics.
-# See in.02 for details.
 fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
 
 timestep        0.001
@@ -78,22 +52,22 @@ thermo          200
 thermo_style    custom step temp pe ke etotal
 thermo_modify   flush yes
 
-# --- Heat to T_anneal over 20 ps (only g_mobile is integrated; g_edge is frozen) ---
+# --- heat to T_anneal (20 ps) ---
 fix             fix_ramp_up g_mobile nvt temp ${T_target} ${T_anneal} 0.1
 run             20000
 unfix           fix_ramp_up
 
-# --- Hold at T_anneal for 30 ps to let defect clusters recombine/stabilize ---
+# --- hold (30 ps) ---
 fix             fix_hold g_mobile nvt temp ${T_anneal} ${T_anneal} 0.1
 run             30000
 unfix           fix_hold
 
-# --- Cool gradually to T_target over 30 ps ---
+# --- cool to T_target (30 ps) ---
 fix             fix_ramp_down g_mobile nvt temp ${T_anneal} ${T_target} 0.1
 run             30000
 unfix           fix_ramp_down
 
-# --- Equilibrate at T_target for another 20 ps ---
+# --- final NVT (20 ps) ---
 fix             fix_final g_mobile nvt temp ${T_target} ${T_target} 0.1
 run             20000
 unfix           fix_final
@@ -101,6 +75,4 @@ unfix           fix_final
 write_restart   restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
 write_data      data.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
 
-print           "=== Anneal + cooldown complete ==="
-print           "Next step: in.04_nemd_thermal.lammps (interfacial thermal conductance)"
-print           "Check with DXA/CNA: remaining defect structure after annealing (not fully annealed out)"
+print           "Anneal + cooldown done"

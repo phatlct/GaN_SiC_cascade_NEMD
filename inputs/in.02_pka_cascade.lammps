@@ -1,76 +1,22 @@
-# ==============================================================================
 # in.02_pka_cascade.lammps
-# Step 3: launch a 1-10 keV PKA (Ga or N) near the GaN/SiC interface to
-# create a collision cascade cluster, with electronic stopping.
-# Methodology references: Nanomaterials 14(21),1738 (2024) - InP electronic
-# stopping; Materials 16(12),4224 (2023) - GaN alpha particle cascade.
-# ==============================================================================
-#
-# Features:
-#   - PKA species is a parameter (Ga or N; select with -var pka_species N).
-#   - The PKA direction is sampled randomly within a cone around the -z axis
-#     (toward the interface). Real particle irradiation is isotropic; a single
-#     fixed direction would bias the shape of the defect cluster. The cone
-#     half-angle and the random seed are adjustable.
-#   - Cascade containment diagnostic: the kinetic energy of the boundary
-#     region is monitored during the run to detect cascade energy reaching
-#     the boundary before it has dissipated (limited system size along z).
-#   - lj_scale allows a sensitivity scan of the interfacial LJ parameters
-#     (e.g. -var lj_scale 0.5 or -var lj_scale 1.5) without editing the input.
-#
-# Notes:
-#   - The timestep must be adaptive during the cascade because the PKA has a
-#     very high velocity right after the collision -> fix dt/reset limits the
-#     maximum displacement per timestep (a fixed 0.001 ps timestep is not
-#     used for this stage).
-#   - fix electron/stopping requires electronic stopping power (dE/dx) versus
-#     energy for each element Ga, N, Si, C, taken from SRIM/SRIM-2013 or
-#     published data. The placeholder file "elstop_GaNSiC.txt" used below
-#     must be replaced with actual SRIM data.
-#   - The boundary region (thermostatted boundary damping) absorbs cascade
-#     energy propagating outward, mimicking an "infinite bulk" - fix langevin
-#     is applied to the outermost atomic layers.
-#   - Containment (see the warning printed by build_GaN_SiC_interface.py):
-#     the system must be thick enough along z to contain the cascade before
-#     it reaches the boundary. Check the thermo column "ke_boundary" in the
-#     log; an abnormal rise during the cascade means energy reached the
-#     boundary too early.
-# ==============================================================================
+# PKA (Ga or N, 1-10 keV) cascade near the GaN/SiC interface with electronic stopping.
+# Usage: lmp -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0 [-var lj_scale 1.0] -in in.02_pka_cascade.lammps
+# Output: restart/data/dump.postcascade_*, dump.cascade_*.lammpstrj
 
 units           metal
 atom_style      atomic
 boundary        p p f
 atom_modify     map array
 
-variable        T_equil index 300           # equilibration temperature (300/350/400) -
-                                             # set from the command line: -var T_equil 350
-# read_data is used instead of read_restart: read_restart can fail with "Did
-# not assign all restart atoms correctly" for strongly tilted triclinic boxes
-# (tilt 30.827) on some MPI decompositions (e.g. 1x2x5 with -n 10), losing one
-# atom (33659 instead of 33660). in.01 writes both data.equil_* and
-# restart.equil_*; read_data is more robust and preserves masses and velocities.
+variable        T_equil index 300
+# read_data instead of read_restart (restart loses an atom for this tilted box on some MPI layouts)
 read_data       data.equil_${T_equil}K.data
 
 group           gan   type 1 2
 group           sic   type 3 4
 
-# --- Force field - see 02_Force_Field/LJ_interface_crossterms_UFF.md ---
-variable        lj_scale index 1.0     # interfacial LJ scale factor for sensitivity scans
-                                        # (e.g. lmp -var lj_scale 0.5 -in in.02...)
-# GPU note: do not use "-sf gpu" on the command line (the GPU package does not
-# allow the same /gpu style to appear twice in hybrid/overlay). Use only
-# "-pk gpu 1 platform X" - see in.01_minimize_equilibrate.lammps and
-# QUY_TRINH_CHAY_NGHIEN_CUU.md.
-# The GaN substyle (more atoms) uses "tersoff/gpu" and the SiC substyle a CPU
-# Tersoff variant. The two style names differ, so the restriction above does
-# not apply and no 1/2 index is needed in pair_coeff. Potential energy matches
-# the pure-CPU version exactly - see in.01 for details.
-# "neigh no" is required in -pk gpu; otherwise LAMMPS reports "Must not use
-# GPU neighbor lists with hybrid pair style".
-# The SiC substyle uses OpenMP with a total of 14 threads (70%% of the
-# machine): 7 MPI ranks x 2 OpenMP threads per rank.
-# LAMMPS must be built with the OPENMP package; otherwise it fails at startup.
-# In that case use "tersoff" (without /omp) and "-n 14" (without "-pk omp").
+# --- force field ---
+variable        lj_scale index 1.0     # interfacial LJ scale factor
 pair_style      hybrid/overlay tersoff/gpu tersoff/omp lj/cut/gpu 10.0
 pair_coeff      * * tersoff/gpu GaN.tersoff Ga N NULL NULL
 pair_coeff      * * tersoff/omp SiC.tersoff NULL NULL Si C
@@ -80,7 +26,7 @@ pair_coeff      1 2 lj/cut/gpu 0.0 1.0 2.0
 pair_coeff      3 3 lj/cut/gpu 0.0 1.0 2.0
 pair_coeff      4 4 lj/cut/gpu 0.0 1.0 2.0
 pair_coeff      3 4 lj/cut/gpu 0.0 1.0 2.0
-pair_coeff      1 3 lj/cut/gpu $(0.01771*v_lj_scale) 3.8654   # Ga-Si (UFF combining rule)
+pair_coeff      1 3 lj/cut/gpu $(0.01771*v_lj_scale) 3.8654   # Ga-Si, UFF combining rule
 pair_coeff      1 4 lj/cut/gpu $(0.00905*v_lj_scale) 3.6602   # Ga-C
 pair_coeff      2 3 lj/cut/gpu $(0.00722*v_lj_scale) 3.5322   # N-Si
 pair_coeff      2 4 lj/cut/gpu $(0.00369*v_lj_scale) 3.3447   # N-C
@@ -88,19 +34,10 @@ pair_coeff      2 4 lj/cut/gpu $(0.00369*v_lj_scale) 3.3447   # N-C
 neighbor        2.0 bin
 neigh_modify    every 1 delay 0 check yes
 
-# --- Boundary region (boundary thermostat) to absorb cascade energy ---
-# Atomic layers near the z boundaries (~10-15 Angstrom thick) act as a buffer
+# --- boundary layers: 3 A frozen edge, 9 A Langevin buffer ---
 variable        zlo equal bound(all,zmin)
 variable        zhi equal bound(all,zmax)
 
-# z is non-periodic (boundary p p f), so atoms in the outermost layer can be
-# ejected from the box when high-energy cascade fronts reach it ("Lost atoms").
-# The Langevin+NVE buffer (9 A, below) lets atoms move, so it only dissipates
-# heat and cannot confine them. A thin (3 A) outermost layer is therefore
-# frozen completely (setforce 0, no nve) to anchor the lattice, as in in.01.
-# The remaining 9 A Langevin buffer absorbs cascade heat realistically
-# (freezing the whole 12 A would reflect energy unphysically instead of
-# scattering/absorbing it as bulk material does).
 region          r_edge_lo block INF INF INF INF ${zlo} $(v_zlo+3.0) units box
 region          r_edge_hi block INF INF INF INF $(v_zhi-3.0) ${zhi} units box
 group           g_edge_lo region r_edge_lo
@@ -114,46 +51,22 @@ group           g_boundary_top region r_top
 group           g_boundary union g_boundary g_boundary_top
 group           g_mobile subtract all g_boundary g_edge
 
-# The Langevin target temperature is ${T_equil} so that runs at temperatures
-# other than 300 K are consistent.
 fix             fix_boundary_temp g_boundary langevin ${T_equil} ${T_equil} 0.1 24601
 fix             fix_boundary_nve  g_boundary nve
 fix             fix_edge_freeze   g_edge setforce 0.0 0.0 0.0
 
-# At higher PKA energies (e.g. 7 keV) the 3 A frozen + 9 A Langevin layers
-# (12 A total) may not confine every atom, possibly due to channeling: the
-# PKA direction is fixed by rand_seed_dir, and if it coincides with an open
-# lattice channel atoms can travel much farther than usual. Since this is a
-# rare threshold event, thickening the buffer is only a statistical remedy.
-# Elastic reflecting walls are therefore placed at the z box edges. They act
-# only in the rare case of an atom about to leave the box and do not affect
-# the physics otherwise (normally no atom reaches the true boundary). This is
-# a standard technique in radiation damage MD to avoid losing atoms without
-# biasing results in the central region of interest.
+# reflecting walls keep rare channeled atoms from leaving the non-periodic z box
 fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
 
-# --- Containment diagnostic: kinetic energy of the boundary region ---
-# If ke_boundary rises strongly during the cascade (relative to the thermal
-# background at ~300 K), cascade energy has reached the boundary too early:
-# the system is not thick enough along z and results may be unreliable.
+# boundary-region KE, printed in thermo
 compute         cke_boundary g_boundary ke
 variable        ke_boundary equal c_cke_boundary
 
-# --- PKA selection near the interface ---
-# Atom IDs determined from the coordinates in GaN_SiC_interface.data. The
-# interface is at z~38.126 A (GaN above, larger z; SiC below). The chosen
-# atoms are centered in x,y and ~5 A from the interface on the GaN side (deep
-# enough to avoid surface effects, close enough for the cascade to affect the
-# interface):
-#   Ga id=17103, position (30.827, 27.165, 41.718) A
-#   N  id=18244, position (30.827, 25.292, 42.361) A
-# The ID is selected according to pka_species in the if/elif block below,
-# which guarantees the correct element.
-variable        E_pka_keV index 5.0          # scanned over 1-10 keV - set from
-                                              # the command line: -var E_pka_keV 7.5
+# --- PKA ---
+# interface at z~38.1 A; PKA ~5 A above it on the GaN side: Ga id 17103, N id 18244
+variable        E_pka_keV index 5.0
 variable        E_pka_eV  equal v_E_pka_keV*1000.0
 
-# --- PKA species: Ga or N (parameterized; both species are studied) ---
 variable        pka_species index Ga
 if "${pka_species} == Ga" then &
     "variable m_pka equal 69.723" &
@@ -162,29 +75,19 @@ elif "${pka_species} == N" &
     "variable m_pka equal 14.007" &
     "variable pka_id equal 18244" &
 else &
-    "print 'ERROR: pka_species must be Ga or N, got: ${pka_species}'" &
+    "print 'pka_species must be Ga or N: ${pka_species}'" &
     "quit 1"
-print "=== PKA: species=${pka_species}, mass=${m_pka} g/mol, ID=${pka_id} ==="
+print "PKA: ${pka_species}, mass ${m_pka}, id ${pka_id}"
 
 group           g_pka id ${pka_id}
 
-# --- Electronic stopping (LAMMPS built-in fix electron/stopping) ---
-# dE/dx(E) data per element. Note: the Si column in elstop_GaNSiC.txt is real
-# SRIM data (from the official LAMMPS example - see the citation in the .txt
-# file); the Ga, N and C columns currently reuse the Si values as an
-# order-of-magnitude estimate, since element-specific SRIM/published data for
-# GaN/SiC are not yet available. These three columns must be replaced with
-# actual SRIM results before results are used for publication - see
-# HUONG_DAN_SRIM_electronic_stopping.md in the same directory.
+# elstop_GaNSiC.txt: Si-in-Si SRIM table used for all species (nominal PKA energies)
 fix             fix_elstop all electron/stopping 10.0 elstop_GaNSiC.txt
 
-# --- NVE integration for the mobile region (including the PKA) ---
 fix             fix_nve_mobile g_mobile nve
 
-# --- Adaptive timestep: limit the maximum displacement per step ---
+# adaptive dt: check every step, dt 1e-6 to 0.001 ps, max displacement 0.01 A
 fix             fix_adapt_dt all dt/reset 1 1.0e-6 0.001 0.01 units box
-# Parameters: N=1 (check every step), dtmin=1e-6 ps, dtmax=0.001 ps,
-# xmax=0.01 Angstrom (maximum displacement of any atom per step)
 
 timestep        0.001
 
@@ -192,66 +95,39 @@ thermo          10
 thermo_style    custom step dt time temp pe ke etotal v_ke_boundary
 thermo_modify   flush yes
 
-# --- PKA direction: random within a cone around the -z axis (toward the
-# interface), sampled uniformly in solid angle. Change rand_seed_dir between
-# runs to sample different cascade configurations (multi-shot statistics). ---
-variable        cone_halfangle_deg equal 30.0   # cone half-angle (degrees)
+# --- PKA direction: uniform in solid angle within a cone about -z ---
+variable        cone_halfangle_deg equal 30.0
 variable        rand_seed_dir      equal 98765  # change between independent runs
 
 variable        cos_halfangle equal cos(v_cone_halfangle_deg*0.017453293)
 variable        u_rand        equal random(0,1,v_rand_seed_dir)
 variable        cos_theta_p   equal 1.0-v_u_rand*(1.0-v_cos_halfangle)
-variable        theta_p       equal acos(v_cos_theta_p)      # radians, measured from the -z axis
+variable        theta_p       equal acos(v_cos_theta_p)
 variable        phi_rand_deg  equal random(0,360,$(v_rand_seed_dir+1))
 variable        phi_rad       equal v_phi_rand_deg*0.017453293
 
 variable        vx_dir equal sin(v_theta_p)*cos(v_phi_rad)
 variable        vy_dir equal sin(v_theta_p)*sin(v_phi_rad)
-variable        vz_dir equal -cos(v_theta_p)                 # negative since the cone axis is -z
+variable        vz_dir equal -cos(v_theta_p)
 
-# --- PKA velocity for energy E_pka: E = 1/2 m v^2 => v = sqrt(2E/m) ---
+# v = sqrt(2E/m), converted to Angstrom/ps
 variable        v_pka equal sqrt(2.0*v_E_pka_eV*1.602176634e-19/(v_m_pka*1.66053906660e-27))*1.0e-2
-# v_pka units: Angstrom/ps (converted from m/s)
 
 velocity        g_pka set $(v_vx_dir*v_v_pka) $(v_vy_dir*v_v_pka) $(v_vz_dir*v_v_pka) units box
-print "=== PKA direction: theta_from_-z=$(v_theta_p/0.017453293) deg, phi=${phi_rand_deg} deg ==="
+print "PKA direction: theta=$(v_theta_p/0.017453293) deg from -z, phi=${phi_rand_deg} deg"
 
-# "c_thermo_pe" is a global scalar (total energy), not per-atom, so it cannot
-# be used in dump custom. A separate pe/atom compute is defined instead.
 compute         pe_atom_cascade all pe/atom
 dump            dmp_cascade all custom 50 dump.cascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.lammpstrj id type x y z vx vy vz c_pe_atom_cascade
 dump_modify     dmp_cascade sort id
 
-# --- Stages 1+2: collision + heat spike/recombination ---
-# fix dt/reset is kept active throughout both stages. Switching abruptly to a
-# fixed 0.001 ps timestep right after the collision stage is unstable: at
-# that point the adaptive dt can still be ~1e-5 ps (100x smaller), and the
-# jump causes "Lost atoms" immediately. fix dt/reset increases dt gradually
-# up to dtmax=0.001 ps as the system stabilizes (based on the maximum
-# displacement per step), so no manual switch is needed.
-run             8000            # collision stage, adaptive dt from ~1e-6 to 0.001 ps
-run             40000           # heat spike/recombination stage, dt still adaptive
-                                 # (typically settles near dtmax once the system has relaxed)
-# Note: the adaptive dt can remain very small (~1e-5 ps) longer than expected
-# if the cascade still carries high energy, so the step counts above may
-# correspond to less physical time than the intended 20-25 ps. Check the
-# "Time" column in the log after the run: if the final Time << 20-25 ps,
-# increase the run step counts above (especially for small pilot systems;
-# larger production systems dissipate heat faster and dt recovers sooner).
+# --- collision + heat spike, dt/reset active throughout ---
+run             8000
+run             40000
 unfix           fix_adapt_dt
-# After both stages, dt/reset has brought the system to a stable state; only
-# now is it safe to switch to a fixed timestep for subsequent steps (if any).
 timestep        0.001
 
 write_restart   restart.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
 write_data      data.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
-# write_data is written in addition to write_restart because in.03 uses
-# read_data to avoid "Did not assign all restart atoms correctly" on tilted
-# triclinic boxes - see the note at the top of this file.
 write_dump      all custom dump.postcascade_${T_equil}K_${pka_species}_${E_pka_keV}keV.lammpstrj id type x y z
 
-print           "=== PKA cascade complete: ${pka_species} ${E_pka_keV} keV ==="
-print           "Next steps: in.03_anneal_cooldown.lammps -> in.04_nemd_thermal.lammps"
-print           "Check with OVITO/DXA: count remaining defects, classify clusters vs point defects"
-print           "Check the ke_boundary column in the log: a strong rise above the ~300K background"
-print           "may indicate the system is too thin along z (containment) - see the build script warning"
+print           "Cascade done: ${pka_species} ${E_pka_keV} keV"

@@ -1,24 +1,6 @@
-# ==============================================================================
 # in.04_nemd_thermal.lammps
-# Step 5: Impose a temperature gradient (two-region hot/cold NEMD) to measure
-# the heat flux across the GaN/SiC interface and compute the interfacial
-# (Kapitza) thermal conductance, G.
-#
-# Method: direct NEMD with two Langevin-thermostatted regions
-# (Ikeshoji-Hafskjold style). For reverse NEMD, use fix "thermal/conductivity"
-# (Muller-Plathe swap) instead; a commented-out template is given at the end
-# of this file.
-#
-# Interfacial (Kapitza) conductance:
-#   G = q'' / DeltaT_interface
-# where q'' [W/m^2] is the heat flux density through the cross-section and
-# DeltaT_interface [K] is the temperature jump at the interface, obtained by
-# linear extrapolation of the temperature profile on both sides.
-#
-#   q'' = (dE/dt) / A
-# where dE/dt is the steady-state rate of energy injected into the hot region
-# (or extracted from the cold region) and A is the cross-sectional (xy) area.
-# ==============================================================================
+# Two-region Langevin NEMD (reservoirs at T_equil +/- 10 K, dt = 1 fs) for the GaN/SiC interfacial conductance G.
+# Inputs: -var T_equil, pka_species, E_pka_keV (data.postanneal_*.data from in.03); outputs: profile_T_*.dat, dump.nemd_*, restart.nemd_final_*.
 
 units           metal
 atom_style      atomic
@@ -26,31 +8,14 @@ boundary        p p f
 atom_modify     map array
 newton          on
 
-# Parameterized so that the file name matches the output of in.03
-# (restart.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data).
-# Pass from the command line, e.g.: -var T_equil 300 -var pka_species Ga -var E_pka_keV 5.0
 variable        T_equil    index 300
 variable        pka_species index Ga
 variable        E_pka_keV  index 5.0
-# Note: read_restart fails with "Did not assign all restart atoms correctly"
-# for strongly tilted triclinic boxes on many MPI ranks, so read_data is used.
+# read_data instead of read_restart (restart fails for this tilted box with many MPI ranks)
 read_data       data.postanneal_${T_equil}K_${pka_species}_${E_pka_keV}keV.data
 
-# Force field: see inputs/LJ_interface_crossterms_UFF.md
-variable        lj_scale index 1.0     # interface LJ scaling factor for sensitivity scans
-# GPU note: do not use "-sf gpu" (error "GPU package styles must not be used
-# multiple times" when two substyles have the same name); use only
-# "-pk gpu 1 platform X".
-# For performance, the GaN substyle may run as "tersoff/gpu" while the SiC
-# substyle stays "tersoff" (CPU). With distinct names this restriction does not
-# apply and the 1/2 indices in pair_coeff are not needed; PotEng matches the
-# pure-CPU run exactly (tersoff/omp proxy test).
-# "neigh no" must be added to -pk gpu; otherwise LAMMPS fails with "Must not
-# use GPU neighbor lists with hybrid pair style".
-# OpenMP may be enabled for the SiC substyle while keeping the total thread
-# count at 14 (70 percent of the cores): 7 MPI ranks x 2 OMP threads per rank.
-# If LAMMPS was built without OPENMP it fails at startup; in that case revert
-# to "tersoff" (no /omp) and "-n 14" (no "-pk omp").
+# --- force field: Tersoff GaN + Tersoff SiC, LJ cross terms (inputs/LJ_interface_crossterms_UFF.md) ---
+variable        lj_scale index 1.0     # interface LJ scaling factor
 pair_style      hybrid/overlay tersoff tersoff lj/cut 10.0
 pair_coeff      * * tersoff 1 GaN.tersoff Ga N NULL NULL
 pair_coeff      * * tersoff 2 SiC.tersoff NULL NULL Si C
@@ -65,10 +30,10 @@ pair_coeff      1 4 lj/cut $(0.00905*v_lj_scale) 3.6602   # Ga-C
 pair_coeff      2 3 lj/cut $(0.00722*v_lj_scale) 3.5322   # N-Si
 pair_coeff      2 4 lj/cut $(0.00369*v_lj_scale) 3.3447   # N-C
 
-variable        T_avg equal ${T_equil}    # mean system temperature (= T_equil above)
-variable        dT    equal 20.0         # hot/cold temperature difference (small to stay linear)
+variable        T_avg equal ${T_equil}    # mean temperature (K)
+variable        dT    equal 20.0         # T_hot - T_cold (K)
 
-# --- Regions along z: hot (in SiC, away from the interface), cold (in GaN, away from the interface) ---
+# --- regions along z: hot (SiC side), cold (GaN side), 3 Angstrom frozen layers at both ends ---
 variable        zlo equal bound(all,zmin)
 variable        zhi equal bound(all,zmax)
 variable        Lz  equal (v_zhi-v_zlo)
@@ -85,34 +50,18 @@ group           g_fixed_hi region r_fixed_hi
 group           g_fixed union g_fixed g_fixed_hi
 group           g_mobile subtract all g_fixed
 
-# --- Bins along z for the temperature profile (used in post-processing) ---
-# Note: compute chunk/atom on a triclinic box requires units reduced. The box
-# is triclinic (xy tilt = 30.827 from the GaN/SiC structure), so "units box"
-# cannot be used. Since the tilt is only in xy (xz = yz = 0), the z axis is not
-# skewed and reduced and real z coordinates differ only by the factor Lz.
-# The bin width 2.0/Lz corresponds to a physical width of ~2 Angstrom.
-# Consequently, column "Coord1" in profile_T_*.dat is a fraction (0-1) of Lz,
-# not Angstrom; analysis/recompute_G.py converts it to Angstrom using the box
-# length.
+# chunk/atom on a triclinic box needs units reduced; Coord1 is a fraction of Lz (converted by analysis/recompute_G.py)
 compute         cchunk all chunk/atom bin/1d z lower $(2.0/v_Lz) units reduced
 fix             favg all ave/chunk 100 100 10000 cchunk temp file profile_T_${T_avg}K_${pka_species}_${E_pka_keV}keV.dat
 
-# --- Two-region Langevin thermostats generating the temperature gradient ---
-# Note: fix langevin does not support fix_modify energy (unlike fixes such as
-# indent/wall). Energy accumulation is enabled with the "tally yes" keyword;
-# f_fix_hot/f_fix_cold then return the cumulative exchanged energy (eV).
+# fix langevin: energy tallied via "tally yes" (fix_modify energy unsupported)
 fix             fix_hot  g_hot  langevin $(v_T_avg+v_dT/2) $(v_T_avg+v_dT/2) 0.1 11111 tally yes
 fix             fix_cold g_cold langevin $(v_T_avg-v_dT/2) $(v_T_avg-v_dT/2) 0.1 22222 tally yes
 fix             fix_nve  g_mobile nve
 fix             fix_freeze g_fixed setforce 0.0 0.0 0.0
 
-# Reflecting (elastic) walls at the z box boundaries, as a precaution against
-# "Lost atoms" (observed in in.02 at E_pka_keV=7.0). They act only in the rare
-# case that an atom is about to leave the box and do not affect normal
-# dynamics. See in.02 for details.
 fix             fix_wall_z all wall/reflect zlo EDGE zhi EDGE
 
-# --- Monitor cumulative energy added/removed by the thermostats (for q) ---
 compute         etally_hot  g_hot  temp
 compute         etally_cold g_cold temp
 
@@ -122,50 +71,33 @@ thermo_modify   flush yes
 
 timestep        0.001
 
-# --- Equilibration to steady state ---
-run             200000          # ~200 ps - check that the profile is linear on each side of the interface
+run             200000          # 200 ps
 
-# --- Note: redefine both langevin fixes to reset the accumulated energy to
-# zero before production. f_fix_hot/f_fix_cold accumulate from the time the
-# fix is defined and are not reset by reset_timestep; otherwise dE/dt would
-# include the preceding 200 ps equilibration and bias G. ---
+# redefine langevin fixes to reset the accumulated energy (not reset by reset_timestep)
 unfix           fix_hot
 unfix           fix_cold
 fix             fix_hot  g_hot  langevin $(v_T_avg+v_dT/2) $(v_T_avg+v_dT/2) 0.1 33333 tally yes
 fix             fix_cold g_cold langevin $(v_T_avg-v_dT/2) $(v_T_avg-v_dT/2) 0.1 44444 tally yes
 
-# Note: reset_timestep is not allowed while a time-dependent fix ave/chunk is
-# defined, so favg is unfixed here and redefined after the reset (as for
-# fix_hot/fix_cold above). As a result, profile_T_*.dat contains only the
-# production average, without the preceding equilibration.
+# reset_timestep is not allowed while a time-dependent fix ave/chunk is defined
 unfix           favg
 
-# --- Production (averaging) stage ---
 reset_timestep  0
 fix             favg all ave/chunk 100 100 10000 cchunk temp file profile_T_${T_avg}K_${pka_species}_${E_pka_keV}keV.dat
 dump            dmp_nemd all custom 2000 dump.nemd_${T_avg}K_${pka_species}_${E_pka_keV}keV.lammpstrj id type x y z
-run             400000          # ~400 ps production - long enough for a converged heat-flux average
+run             400000          # 400 ps
 
-variable        A_cross equal (lx*ly)        # cross-sectional xy area [Angstrom^2]
-variable        dEdt_hot  equal f_fix_hot/(400000*0.001)     # eV/ps, accumulated by fix_hot
+variable        A_cross equal (lx*ly)        # Angstrom^2
+variable        dEdt_hot  equal f_fix_hot/(400000*0.001)     # eV/ps
 variable        dEdt_cold equal f_fix_cold/(400000*0.001)
 
-print           "=== NEMD RESULTS (post-processing required) ==="
 print           "A_cross (Angstrom^2) = ${A_cross}"
 print           "dE/dt hot (eV/ps)  = ${dEdt_hot}"
 print           "dE/dt cold (eV/ps) = ${dEdt_cold}"
-print           "Lz (Angstrom, box length along z) = ${Lz}"
-print           "Note: Coord1 in profile_T_*.dat is a fraction (0-1) of Lz; analysis/recompute_G.py converts it to Angstrom."
-print           "(units reduced is required for chunk/atom on a triclinic box.)"
-print           "Box length Lz = ${Lz} Angstrom."
-print           "Read profile_T_${T_avg}K_${pka_species}_${E_pka_keV}keV.dat to extract DeltaT_interface by linear extrapolation"
-print           "Use analysis/recompute_G.py to compute G from the reservoir rates and the temperature profile."
+print           "Lz (Angstrom) = ${Lz}"
+print           "G: analysis/recompute_G.py"
 
 write_restart   restart.nemd_final_${T_avg}K_${pka_species}_${E_pka_keV}keV.data
 
-# --- Alternative: reverse NEMD, Muller-Plathe (fix thermal/conductivity) ---
+# --- alternative: reverse NEMD (Muller-Plathe), swaps every 50 steps, 20 z bins ---
 # fix hex all thermal/conductivity 50 z 20
-# (swaps momentum between the hottest and coldest slabs every 50 steps, with
-#  20 bins along z). This method conserves energy more exactly but is less
-#  direct for separating the heat flux on each side of the interface. Both
-#  methods can be used to cross-check results (recommended for publication).

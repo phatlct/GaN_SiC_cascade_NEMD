@@ -21,10 +21,6 @@ off (epsilon = 0).
 
 ## Cross-interface Lennard-Jones parameters
 
-Mixed Tersoff/LJ descriptions of this type are commonly used for
-heterointerfaces for which no fitted cross-interaction potential is
-available (e.g. GaN/diamond).
-
 UFF element parameters (A. K. Rappé, C. J. Casewit, K. S. Colwell,
 W. A. Goddard III, W. M. Skiff, *J. Am. Chem. Soc.* 114, 10024 (1992)):
 
@@ -53,11 +49,5 @@ Combining rules (geometric mean) and conversion to LAMMPS `lj/cut`
 These values are used in all LAMMPS inputs (`pair_coeff 1 3`, `1 4`, `2 3`,
 `2 4`).
 
-## Limitations
-
-UFF is a generic force field developed for molecular systems; the
-cross-interface parameters above are not fitted to interfacial adhesion
-energies or interfacial phonon properties of GaN/SiC. Absolute values of the
-interfacial conductance therefore depend on this choice. The LAMMPS inputs
-expose a scaling factor `lj_scale` (default 1.0) that multiplies all
-cross-interface epsilon values and can be used for sensitivity scans.
+The LAMMPS inputs multiply all cross-interface epsilon values by `lj_scale`
+(default 1.0).
