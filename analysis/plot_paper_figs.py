@@ -184,7 +184,7 @@ def fig3(rgpy, specs):
         ax.axhline(Ts, color="0.6", lw=0.7, ls="--")
     ax.axvline(38.126, color="k", lw=0.8)
     ax.text(38.9, 0.10, "$z_{int}$", fontsize=8, transform=xt)
-    ax.text(31.6, 0.03, "free GaN", ha="center", fontsize=7, transform=xt)
+    ax.text(31.6, 0.03, "free SiC", ha="center", fontsize=7, transform=xt)
     ax.set(xlabel="z (Å)", ylabel="T (K)", ylim=lim, xlim=(0, 115))
     ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=3)
 

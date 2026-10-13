@@ -3,8 +3,8 @@
 Compute the region-based thermal conductance G_reg for each run.
 
 G_reg is defined as J_tb / (A * deltaT_reg), where deltaT_reg = T(z1) - T(z2).
-  z1 = zlo + 27 A  (2 A inside the damage-free GaN, just beyond the hot-reservoir edge)
-  z2 = Z_INT + 15 A (SiC side, outside the damaged region, estimated by linear extrapolation)
+  z1 = zlo + 27 A  (SiC, 2 A beyond the hot-reservoir edge)
+  z2 = Z_INT + 15 A (GaN, from a linear fit to the GaN profile)
 
 This measure is insensitive to the precise location of the interface plane and
 includes the thermal resistance of the entire damaged layer rather than just
@@ -49,11 +49,11 @@ for r in csv.DictReader(open(sys.argv[1])):
 
     z, T = bl[0][:, 0], np.mean([b[:, 1] for b in bl], axis=0)
 
-    # z1: 2 A inside the GaN free region (hot-reservoir right edge is at zlo + 25 A)
+    # z1: 2 A beyond the hot-reservoir edge (zlo + 25 A), in SiC
     z1 = zlo + 25.0 + 2.0
     T1 = np.interp(z1, z, T)
 
-    # z2: extrapolate the SiC temperature profile to ZI + 15 A
+    # z2: extrapolate the GaN temperature profile to ZI + 15 A
     m  = (z > ZI + 3) & (z < ZI + 25)
     T2 = np.polyval(np.polyfit(z[m], T[m], 1), ZI + 15)
 
@@ -68,5 +68,5 @@ for r in csv.DictReader(open(sys.argv[1])):
 
 print(
     "\nG_reg = J_tb / (A * deltaT_reg): conductance of the region [z1, ZI + 15 A], "
-    "spanning the GaN damage zone, the interface, and 15 A of SiC."
+    "spanning 11 A of SiC (most of the cascade damage), the interface, and 15 A of GaN."
 )

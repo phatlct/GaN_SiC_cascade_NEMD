@@ -145,8 +145,8 @@ ax.text(-2, 10.2, "b", fontsize=11, weight="bold", va="top")
 Y0, H = 2.3, 3.4
 
 # Material blocks
-ax.add_patch(Rectangle((0,   Y0), ZI,       H, fc=GAN_T, ec="none"))
-ax.add_patch(Rectangle((ZI,  Y0), Z1 - ZI,  H, fc=SIC_T, ec="none"))
+ax.add_patch(Rectangle((0,   Y0), ZI,       H, fc=SIC_T, ec="none"))
+ax.add_patch(Rectangle((ZI,  Y0), Z1 - ZI,  H, fc=GAN_T, ec="none"))
 
 # Thermostat regions
 ax.add_patch(Rectangle((5.0,       Y0), 20.0, H, fc=HOT_T,  ec=HOT,  lw=1.0, hatch="////"))
@@ -166,8 +166,8 @@ ax.text(15.0, Y0 + H / 2, "hot\nT + 10 K",
 ax.text(Z1 - 15.0, Y0 + H / 2, "cold\nT − 10 K",
         ha="center", va="center", fontsize=7.8, weight="bold", color=COLD,
         bbox=dict(fc=COLD_T, ec="none", pad=0.6))
-ax.text(31.6, Y0 + H - 0.55, "GaN",  ha="center", va="top",    fontsize=8, weight="bold")
-ax.text(64.0, Y0 + H / 2,    "SiC",  ha="center", va="center", fontsize=8, weight="bold")
+ax.text(31.6, Y0 + H - 0.55, "SiC",  ha="center", va="top",    fontsize=8, weight="bold")
+ax.text(64.0, Y0 + H / 2,    "GaN",  ha="center", va="center", fontsize=8, weight="bold")
 
 for zc in (1.5, Z1 - 1.5):
     ax.text(zc, Y0 - 0.35, "fixed", ha="center", va="top", fontsize=6.8, color=MUTE)
@@ -178,10 +178,10 @@ ax.text(ZI + 0.8, Y0 - 0.45, "$z_{\\rm int}$", ha="left", va="top", fontsize=8.2
 
 # Defect cluster (schematic scatter)
 rng = np.random.default_rng(7)
-zz  = np.clip(29.2 + rng.normal(0, 2.3, 34), 25.8, 37.3)
+zz  = np.clip(33.0 + rng.normal(0, 4.0, 34), 24.0, 44.0)
 ax.scatter(zz, 3.25 + rng.normal(0, 0.32, 34),
            s=9, facecolors="white", edgecolors=INK, lw=0.6, zorder=4)
-ax.annotate("defect cluster", (29.2, 3.9), xytext=(16.5, 9.4),
+ax.annotate("defect cluster", (33.0, 3.9), xytext=(16.5, 9.4),
             fontsize=7.6, ha="center",
             arrowprops=dict(arrowstyle="-", lw=0.6, color=INK, shrinkB=2))
 

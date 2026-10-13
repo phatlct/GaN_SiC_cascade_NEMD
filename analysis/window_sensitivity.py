@@ -4,7 +4,7 @@ Assess the sensitivity of G_corr to the choice of fitting-window parameters
 (exclusion half-width EX and fitting half-width FH).
 
 For each (EX, FH) combination the script reports:
-  - whether the fitting window on the GaN side overlaps the hot thermostat (z < zlo + 25.2 A)
+  - whether the fitting window on the SiC side (z < Z_INT) overlaps the hot thermostat (z < zlo + 25.2 A)
   - median G_corr at each cascade energy level
   - Spearman rank correlation between E and G_corr for E <= 5 keV and all energies
 

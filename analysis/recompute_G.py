@@ -186,10 +186,10 @@ def parse_profile(path, Lz, zlo=0.0, tmin_step=None):
 def deltaT(z, T):
     """
     Estimate the temperature discontinuity at z = Z_INT by linear extrapolation
-    from the GaN side (left window) and the SiC side (right window).
+    from the SiC side (left window, hot reservoir) and the GaN side (right window, cold reservoir).
 
-    Fitting windows: [Z_INT - FH, Z_INT - EX] on the GaN side and
-                     [Z_INT + EX, Z_INT + FH] on the SiC side.
+    Fitting windows: [Z_INT - FH, Z_INT - EX] on the SiC side and
+                     [Z_INT + EX, Z_INT + FH] on the GaN side.
     """
     L = (z > Z_INT - FH) & (z < Z_INT - EX)
     R = (z < Z_INT + FH) & (z > Z_INT + EX)
@@ -298,7 +298,9 @@ for root in sys.argv[1:]:
             G_reg = Jtb * CONV / (A * 1e-20) / (T1 - T2) / 1e6
 
             # Quality-control flag: valid run requires positive deltaT,
-            # signal-to-noise >= 3, and no spurious heat source leaking into SiC
+            # signal-to-noise >= 3, and no temperature maximum on the GaN side beyond Z_INT + EX.
+            # Column names TmaxGaN_minus_Thot / sic_peak are kept from the original pipeline:
+            # 'gan' below is the free SiC between hot reservoir and interface, 'sic' the GaN side.
             gan      = (zm > 25.2) & (zm < Z_INT)
             sic      = (zm > Z_INT + EX) & (zm < Z_INT + 40)
             sic_peak = Tm[sic].max() - Tm[sic][0]
