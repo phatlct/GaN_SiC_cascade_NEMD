@@ -119,12 +119,14 @@ python3 analysis/validate_G.py recompute_G.csv summary_G_sweep.csv ensemble5_ToH
 ## Original 165 runs (raw data, archived separately)
 
 Logs, temperature profiles and post-anneal structures of the 165 original
-runs are archived at Zenodo: https://doi.org/10.5281/zenodo.23255970
-(GaN_SiC_original165_raw.tar.gz, 495 files).
+runs are archived at Zenodo: https://doi.org/10.5281/zenodo.23353598
+(GaN_SiC_original165_raw.tar.gz, 495 files, split into 11 parts;
+md5 of the reassembled archive: f712cca987d20d5112c15ec78c86e6ba).
 
 From the repository root:
 
 ```
+cat GaN_SiC_original165_raw.tar.gz.part* > GaN_SiC_original165_raw.tar.gz
 tar -xzf GaN_SiC_original165_raw.tar.gz
 python3 analysis/recompute_G.py 02_WSL2_KOKKOS_CUDA 03_KOKKOS_Ensemble_Seeds
     -> recompute_G.csv (Fig. 2, Fig. S1, Table 2)
@@ -141,4 +143,5 @@ conversion (atomic extent instead of box length) used for Table S2.
 ## Citation
 
 If you use this code or data, please cite the manuscript above and the
-archived dataset (https://doi.org/10.5281/zenodo.23255970).
+archived records: code, https://doi.org/10.5281/zenodo.23255970;
+raw data, https://doi.org/10.5281/zenodo.23353598.
